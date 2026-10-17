@@ -19,8 +19,11 @@ namespace MEMORY
 
 void* AlignedMalloc(size_t s, size_t alignTo)
 {
-  void* p;
-  posix_memalign(&p, alignTo, s);
+  // LOCAL PATCH (megarushing): xbmc/xbmc#29091 - on failure posix_memalign leaves p
+  // untouched, so the old code returned stack garbage that callers took as valid.
+  void* p = nullptr;
+  if (posix_memalign(&p, alignTo, s) != 0)
+    return nullptr;
 
   return p;
 }
