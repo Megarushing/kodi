@@ -19,7 +19,7 @@ depends() {
   cd "$SRC/tools/depends"
   [ -x configure ] || ./bootstrap
   ./configure --with-tarballs="$WORK/tarballs" --host=$HOST \
-    --with-sdk-path="$SDK" --with-ndk-path="$NDK" --prefix="$WORK/depends"
+    --with-sdk-path="$SDK" --with-ndk-path="$NDK" --prefix="$WORK/depends" --disable-debug  # release, like the Play Store build
   make -j"$JOBS"
 }
 
