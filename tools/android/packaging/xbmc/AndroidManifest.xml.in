@@ -50,6 +50,9 @@
         android:logo="@mipmap/banner"
         android:requestLegacyExternalStorage="true"
         android:enableOnBackInvokedCallback="false">
+        <!-- LOCAL PATCH (megarushing): lets Android's heap profiler (perfetto heapprofd) attach from adb shell,
+             to find what fills RAM on the 2 GB Shield. Unlike debuggable it does not change runtime behaviour. -->
+        <profileable android:shell="true" />
         <activity
             android:name=".Splash"
             android:configChanges="orientation|keyboard|keyboardHidden|navigation|touchscreen|screenLayout|screenSize|colorMode"
