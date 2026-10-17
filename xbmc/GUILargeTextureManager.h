@@ -107,6 +107,18 @@ public:
    */
   void CleanupUnusedImages(bool immediately = false);
 
+  //! LOCAL PATCH (megarushing): numbers for the Android memory guard (XBMCApp.cpp).
+  //! pixelBytes = decoded image data still in RAM because the image was never drawn (not uploaded to the GPU yet).
+  struct Stats
+  {
+    unsigned int allocated = 0;
+    unsigned int referenced = 0;
+    unsigned int queued = 0;
+    size_t pixelBytes = 0;
+    size_t pixelBytesReferenced = 0;
+  };
+  Stats GetStats();
+
 private:
   class CLargeTexture
   {
@@ -121,6 +133,7 @@ private:
 
     const std::string& GetPath() const { return m_path; }
     const CTextureArray& GetTexture() const { return m_texture; }
+    unsigned int GetRefCount() const { return m_refCount; }
 
   private:
     static const unsigned int TIME_TO_DELETE = 2000;
