@@ -30,7 +30,18 @@ tmux new -s kodimega 'tools/mega/build-android.sh all 2>&1 | tee ~/kodi-mega-bui
 # steps can run alone: depends | kodi | apk
 ```
 
-Output: the signed APK in the repo root (`kodiapp-armeabi-v7a-*.apk`).
+Output: the signed APK in the repo root (`kodiapp-armeabi-v7a-release.apk`), and the unstripped
+`libkodi.so` (with debug info) in `~/kodi-mega-build/symbols/<commit>/`. It is a release build on purpose:
+a debug build uses more memory and changes the memory crashes this fork exists to fix.
+
+First full build on MegaServer (4 cores, 2026-10-17): about 1 h 50 min. Later builds only recompile what changed.
+
+## Read a crash
+
+```sh
+adb logcat -d -b crash > crash.txt
+~/Android/Sdk/ndk/21.4.7075529/ndk-stack -sym ~/kodi-mega-build/symbols/<commit> -dump crash.txt
+```
 
 ## Install on the Shield
 
