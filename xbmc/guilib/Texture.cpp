@@ -443,6 +443,9 @@ bool CTexture::LoadPaletted(unsigned int width,
     return false;
 
   Allocate(width, height, format);
+  // LOCAL PATCH (megarushing): Allocate leaves m_pixels null when out of memory.
+  if (m_pixels == nullptr)
+    return false;
 
   for (unsigned int y = 0; y < m_imageHeight; y++)
   {
