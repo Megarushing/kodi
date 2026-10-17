@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Kodi Mega: build the armeabi-v7a APK (Shield = 32-bit userspace) on MegaServer.
 # Steps follow docs/README.Android.md. Re-runs are incremental; delete $WORK to start clean.
-# Usage: tools/mega/build-android.sh [depends|kodi|apk|all]   (default: all)
+# Usage: tools/mega/build-android.sh [depends|kodi|apk|symbols|all]   (default: all)
 set -euo pipefail
 
 HOST=arm-linux-androideabi                                   # 32-bit ARM target
@@ -36,12 +36,27 @@ apk() {
   export KODI_ANDROID_KEY_PASSWORD=$(prop keyPassword)
   make -C "$WORK/build" apk
   ls -l "$WORK/build"/*.apk "$SRC"/*.apk 2>/dev/null || true
+  symbols
+}
+
+# Keep the unstripped libkodi.so per commit, so Shield crash logs can be read later:
+#   adb logcat -d -b crash | $NDK/ndk-stack -sym $WORK/symbols/<commit>
+symbols() {
+  local rev dir
+  rev=$(git -C "$SRC" rev-parse --short HEAD)
+  git -C "$SRC" diff --quiet HEAD -- xbmc || rev="$rev-dirty"
+  dir="$WORK/symbols/$rev"
+  mkdir -p "$dir"
+  cp "$WORK/build/libkodi.so" "$dir/"
+  sha256sum "$SRC"/kodiapp-armeabi-v7a-*.apk > "$dir/apk.sha256"
+  echo "symbols: $dir"
 }
 
 case $step in
   depends) depends ;;
   kodi) kodi ;;
   apk) apk ;;
+  symbols) symbols ;;
   all) depends; kodi; apk ;;
-  *) echo "usage: $0 [depends|kodi|apk|all]" >&2; exit 2 ;;
+  *) echo "usage: $0 [depends|kodi|apk|symbols|all]" >&2; exit 2 ;;
 esac
