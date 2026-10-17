@@ -143,6 +143,17 @@ public:
   bool GetInterimImage(const std::string& path,
                        CAspectRatio::AspectRatio aspectRatio,
                        CTextureArray& texture);
+  //! LOCAL PATCH (megarushing): numbers for the Android memory guard (XBMCApp.cpp).
+  //! pixelBytes = decoded image data still in RAM because the image was never drawn (not uploaded to the GPU yet).
+  struct Stats
+  {
+    unsigned int allocated = 0;
+    unsigned int referenced = 0;
+    unsigned int queued = 0;
+    size_t pixelBytes = 0;
+    size_t pixelBytesReferenced = 0;
+  };
+  Stats GetStats();
 
 private:
   class CLargeTexture
@@ -165,6 +176,7 @@ private:
     unsigned int GetTargetWidth() const { return m_targetWidth; }
     unsigned int GetTargetHeight() const { return m_targetHeight; }
     CAspectRatio::AspectRatio GetAspectRatio() const { return m_aspectRatio; }
+    unsigned int GetRefCount() const { return m_refCount; }
 
   private:
     static const unsigned int TIME_TO_DELETE = 2000;

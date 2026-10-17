@@ -226,6 +226,32 @@ void CGUILargeTextureManager::CleanupUnusedImages(bool immediately)
   }
 }
 
+// LOCAL PATCH (megarushing): see header.
+CGUILargeTextureManager::Stats CGUILargeTextureManager::GetStats()
+{
+  std::unique_lock<CCriticalSection> lock(m_listSection);
+  Stats stats;
+  stats.queued = static_cast<unsigned int>(m_queued.size());
+  for (const CLargeTexture* image : m_allocated)
+  {
+    stats.allocated++;
+    const bool referenced = image->GetRefCount() > 0;
+    if (referenced)
+      stats.referenced++;
+    for (const auto& texture : image->GetTexture().m_textures)
+    {
+      if (texture && texture->GetPixels())
+      {
+        const size_t bytes = static_cast<size_t>(texture->GetPitch()) * texture->GetRows();
+        stats.pixelBytes += bytes;
+        if (referenced)
+          stats.pixelBytesReferenced += bytes;
+      }
+    }
+  }
+  return stats;
+}
+
 // if available, increment reference count, and return the image.
 // else, add to the queue list if appropriate.
 bool CGUILargeTextureManager::GetImage(const std::string& path,

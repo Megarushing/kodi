@@ -32,6 +32,8 @@
 #include "filesystem/SpecialProtocol.h"
 #include "filesystem/VideoDatabaseFile.h"
 #include "guilib/GUIComponent.h"
+#include "GUILargeTextureManager.h" // LOCAL PATCH (megarushing): memory guard
+#include "guilib/TextureManager.h" // LOCAL PATCH (megarushing): memory guard
 #include "guilib/GUIWindowManager.h"
 #include "guilib/guiinfo/GUIInfoLabels.h"
 #include "input/actions/Action.h"
@@ -68,6 +70,10 @@
 #include <mutex>
 #include <sstream>
 #include <stdlib.h>
+#include <cstdlib>
+#include <cstring>
+#include <cstdio>
+#include <chrono>
 #include <string.h>
 #include <time.h>
 
@@ -963,11 +969,125 @@ std::vector<int> CXBMCApp::GetInputDeviceIds()
   return inputManager.getInputDeviceIds();
 }
 
+// LOCAL PATCH (megarushing): Android memory guard.
+// The bedroom Shield (2 GB RAM, 512 MB zram, 32-bit Kodi) runs out of RAM while browsing image-heavy
+// skins, and Android's low-memory killer then kills Kodi without warning (measured 2026-10-18:
+// native heap 170 -> 510 MB in 4 Arctic Fuse tabs, swap 0, am_low_memory). Kodi's own cleanup only
+// frees images 2 s after they are unused and never looks at system memory. Under pressure this
+// frees unused images and GPU textures at once and hands freed heap pages back to Android.
+// Every check is logged as "MemoryGuard:" so a later crash shows the memory state before it.
+namespace
+{
+// Tunables (KB). Pressure = act; critical = act every check and log loudly.
+constexpr long GUARD_PRESSURE_AVAIL_KB = 450 * 1024; // MemAvailable below this
+constexpr long GUARD_CRITICAL_AVAIL_KB = 300 * 1024;
+constexpr long GUARD_PRESSURE_SWAPFREE_KB = 96 * 1024; // zram almost full
+constexpr long GUARD_PRESSURE_VMSIZE_KB = 3000L * 1024; // 32-bit address space (~4 GB) filling up
+constexpr long GUARD_CRITICAL_VMSIZE_KB = 3400L * 1024;
+constexpr int GUARD_CHECK_EVERY_MS = 2000;
+constexpr int GUARD_RELIEF_EVERY_MS = 10000; // under plain pressure, at most one relief pass per 10 s
+constexpr int GUARD_REPORT_EVERY_MS = 60000; // routine "MemoryGuard: ok" line
+constexpr int GUARD_M_PURGE = -101; // bionic mallopt M_PURGE (API 28+): return free heap pages to the OS
+
+long ReadProcKb(const char* file, const char* key)
+{
+  FILE* f = fopen(file, "re");
+  if (!f)
+    return -1;
+  char line[256];
+  long value = -1;
+  const size_t len = strlen(key);
+  while (fgets(line, sizeof(line), f))
+  {
+    if (strncmp(line, key, len) == 0 && line[len] == ':')
+    {
+      value = strtol(line + len + 1, nullptr, 10);
+      break;
+    }
+  }
+  fclose(f);
+  return value;
+}
+
+struct GuardState
+{
+  std::chrono::steady_clock::time_point nextCheck{};
+  std::chrono::steady_clock::time_point nextRelief{};
+  std::chrono::steady_clock::time_point nextReport{};
+  int level = 0;
+};
+GuardState g_memoryGuard;
+
+void MemoryGuardProcess()
+{
+  using namespace std::chrono;
+  const auto now = steady_clock::now();
+  if (now < g_memoryGuard.nextCheck)
+    return;
+  g_memoryGuard.nextCheck = now + milliseconds(GUARD_CHECK_EVERY_MS);
+
+  CGUIComponent* gui = CServiceBroker::GetGUI();
+  if (!gui)
+    return;
+
+  const long avail = ReadProcKb("/proc/meminfo", "MemAvailable");
+  const long swapFree = ReadProcKb("/proc/meminfo", "SwapFree");
+  const long swapTotal = ReadProcKb("/proc/meminfo", "SwapTotal");
+  const long vmSize = ReadProcKb("/proc/self/status", "VmSize");
+  const long rss = ReadProcKb("/proc/self/status", "VmRSS");
+
+  int level = 0;
+  if ((avail >= 0 && avail < GUARD_PRESSURE_AVAIL_KB) ||
+      (swapTotal > 0 && swapFree >= 0 && swapFree < GUARD_PRESSURE_SWAPFREE_KB) ||
+      vmSize > GUARD_PRESSURE_VMSIZE_KB)
+    level = 1;
+  if ((avail >= 0 && avail < GUARD_CRITICAL_AVAIL_KB) || vmSize > GUARD_CRITICAL_VMSIZE_KB)
+    level = 2;
+
+  const auto before = gui->GetLargeTextureManager().GetStats();
+  const bool relieve = level == 2 || (level == 1 && now >= g_memoryGuard.nextRelief);
+  if (relieve)
+  {
+    g_memoryGuard.nextRelief = now + milliseconds(GUARD_RELIEF_EVERY_MS);
+    gui->GetLargeTextureManager().CleanupUnusedImages(true);
+    gui->GetTextureManager().FreeUnusedTextures(0);
+    // mallopt is declared only for API >= 26; Kodi builds against API 21, so look it up at runtime.
+    using MalloptFn = int (*)(int, int);
+    static const auto mallopt_fn = reinterpret_cast<MalloptFn>(dlsym(RTLD_DEFAULT, "mallopt"));
+    if (mallopt_fn)
+      mallopt_fn(GUARD_M_PURGE, 0);
+    const auto after = gui->GetLargeTextureManager().GetStats();
+    const long rssAfter = ReadProcKb("/proc/self/status", "VmRSS");
+    CLog::Log(level == 2 ? LOGWARNING : LOGINFO,
+              "MemoryGuard: {} avail={}MB swapFree={}MB vmsize={}MB rss={}->{}MB | images {}->{} "
+              "(referenced {}, queued {}) undrawnPixels={}->{}MB (referenced {}MB)",
+              level == 2 ? "CRITICAL" : "pressure", avail / 1024, swapFree / 1024, vmSize / 1024,
+              rss / 1024, rssAfter / 1024, before.allocated, after.allocated, after.referenced,
+              after.queued, before.pixelBytes >> 20, after.pixelBytes >> 20,
+              after.pixelBytesReferenced >> 20);
+  }
+  else if (level != g_memoryGuard.level || now >= g_memoryGuard.nextReport)
+  {
+    CLog::Log(LOGINFO,
+              "MemoryGuard: {} avail={}MB swapFree={}MB vmsize={}MB rss={}MB | images {} (referenced "
+              "{}, queued {}) undrawnPixels={}MB (referenced {}MB)",
+              level == 0 ? "ok" : (level == 1 ? "pressure" : "CRITICAL"), avail / 1024,
+              swapFree / 1024, vmSize / 1024, rss / 1024, before.allocated, before.referenced,
+              before.queued, before.pixelBytes >> 20, before.pixelBytesReferenced >> 20);
+  }
+  if (level != g_memoryGuard.level || now >= g_memoryGuard.nextReport)
+    g_memoryGuard.nextReport = now + milliseconds(GUARD_REPORT_EVERY_MS);
+  g_memoryGuard.level = level;
+}
+} // namespace
+
 void CXBMCApp::ProcessSlow()
 {
   if ((m_playback_state & PLAYBACK_STATE_PLAYING) && !m_mediaSessionUpdated &&
       m_mediaSession->isActive())
     UpdateSessionState();
+
+  MemoryGuardProcess(); // LOCAL PATCH (megarushing)
 }
 
 std::vector<androidPackage> CXBMCApp::GetApplications() const
