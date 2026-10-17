@@ -1478,6 +1478,14 @@ void CXBMCApp::OnWakeup()
 
 void CXBMCApp::onNewIntent(CJNIIntent intent)
 {
+  // LOCAL PATCH (megarushing): an intent can arrive while Kodi's native side is not up (starting or
+  // already shut down). CLog then dereferences a null logger: SIGSEGV fault addr 0x14 in
+  // CLog::FormatAndLogInternal <- onNewIntent (bedroom Shield 2026-10-14 16:35). Same guard as onReceive.
+  if (!CServiceBroker::IsLoggingUp() || !g_application.IsInitialized())
+  {
+    android_printf("CXBMCApp::onNewIntent - Kodi not initialized, intent ignored");
+    return;
+  }
   if (!intent)
   {
     CLog::Log(LOGINFO, "CXBMCApp::onNewIntent - Got invalid intent.");

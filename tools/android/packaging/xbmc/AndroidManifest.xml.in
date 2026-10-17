@@ -48,6 +48,9 @@
         android:label="@string/app_name"
         android:logo="@drawable/banner"
         android:requestLegacyExternalStorage="true">
+        <!-- LOCAL PATCH (megarushing): lets Android's heap profiler (perfetto heapprofd) attach from adb shell,
+             to find what fills RAM on the 2 GB Shield. Unlike debuggable it does not change runtime behaviour. -->
+        <profileable android:shell="true" />
         <activity
             android:name=".Splash"
             android:configChanges="orientation|keyboard|keyboardHidden|navigation|touchscreen|screenLayout|screenSize|colorMode"
