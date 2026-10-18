@@ -248,6 +248,23 @@ unsigned int CJobManager::AddJob(CJob *job, IJobCallback *callback, CJob::PRIORI
   return work.m_id;
 }
 
+// LOCAL PATCH (megarushing): drop a job that has not started; a running job is left to finish.
+bool CJobManager::CancelJobIfQueued(unsigned int jobID)
+{
+  std::unique_lock<CCriticalSection> lock(m_section);
+  for (unsigned int priority = CJob::PRIORITY_LOW_PAUSABLE; priority <= CJob::PRIORITY_DEDICATED; ++priority)
+  {
+    JobQueue::iterator i = find(m_jobQueue[priority].begin(), m_jobQueue[priority].end(), jobID);
+    if (i != m_jobQueue[priority].end())
+    {
+      delete i->m_job;
+      m_jobQueue[priority].erase(i);
+      return true;
+    }
+  }
+  return false;
+}
+
 void CJobManager::CancelJob(unsigned int jobID)
 {
   std::unique_lock<CCriticalSection> lock(m_section);

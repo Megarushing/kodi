@@ -40,6 +40,7 @@
 #include "video/guilib/VideoPlayActionProcessor.h"
 #include "video/guilib/VideoSelectActionProcessor.h"
 
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <utility>
@@ -62,7 +63,8 @@ public:
       m_sort(sort),
       m_limit(limit),
       m_browse(browse),
-      m_parentID(parentID)
+      m_parentID(parentID),
+      m_queued(std::chrono::steady_clock::now()) // LOCAL PATCH (megarushing): WidgetTiming
   { }
   ~CDirectoryJob() override = default;
 
@@ -80,8 +82,17 @@ public:
 
   bool DoWork() override
   {
+    // LOCAL PATCH (megarushing): WidgetTiming log = queue wait, directory fetch, thumb load per widget.
+    using clock = std::chrono::steady_clock;
+    auto ms = [](clock::time_point a, clock::time_point b) {
+      return static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count());
+    };
+    const auto started = clock::now();
     CFileItemList items;
-    if (CDirectory::GetDirectory(m_url, items, "", DIR_FLAG_DEFAULTS))
+    const bool fetched = CDirectory::GetDirectory(m_url, items, "", DIR_FLAG_DEFAULTS);
+    const auto gotDir = clock::now();
+    clock::time_point thumbsDone = gotDir;
+    if (fetched)
     {
       // sort the items if necessary
       if (m_sort.sortBy != SortByNone)
@@ -104,6 +115,7 @@ public:
 
         m_items.push_back(item);
       }
+      thumbsDone = clock::now();
 
       if (items.HasProperty("node.target"))
         m_target = items.GetProperty("node.target").asString();
@@ -127,6 +139,9 @@ public:
           CLog::LogF(LOGWARNING, "Cannot add 'More...' item to list. No target window given.");
       }
     }
+    CLog::Log(LOGINFO, "WidgetTiming: wait {} fetch {} thumbs {} items {}{} {}", ms(m_queued, started),
+              ms(started, gotDir), ms(gotDir, thumbsDone), items.Size(), fetched ? "" : " FAILED",
+              m_url.substr(0, 180));
     return true;
   }
 
@@ -183,6 +198,7 @@ private:
   unsigned int m_limit;
   CDirectoryProvider::BrowseMode m_browse{CDirectoryProvider::BrowseMode::AUTO};
   int m_parentID;
+  std::chrono::steady_clock::time_point m_queued;
   std::vector<CGUIStaticItemPtr> m_items;
   std::map<InfoTagType, std::shared_ptr<CThumbLoader> > m_thumbloaders;
 };
@@ -429,11 +445,13 @@ void CDirectoryProvider::Reset()
 void CDirectoryProvider::CancelPendingUpdate()
 {
   std::unique_lock<CCriticalSection> lock(m_section);
-  if (m_jobID)
+  // A fetch that already runs is left to finish (its result is still wanted); a queued one is
+  // dropped and fetched again when the list is processed next (m_updateState = INVALIDATED).
+  if (m_jobID && CServiceBroker::GetJobManager()->CancelJobIfQueued(m_jobID))
   {
-    CServiceBroker::GetJobManager()->CancelJob(m_jobID);
     m_jobID = 0;
     m_updateState = INVALIDATED;
+    CLog::Log(LOGINFO, "WidgetTiming: cancelled {}", m_currentUrl.substr(0, 120));
   }
 }
 

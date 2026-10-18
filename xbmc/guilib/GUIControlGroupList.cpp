@@ -88,9 +88,15 @@ void CGUIControlGroupList::Process(unsigned int currentTime, CDirtyRegionList &d
       if (m_farOffReleased.insert(control).second)
       {
         if (control->IsGroup())
+        {
           static_cast<CGUIControlGroup*>(control)->FreeContainerItemImages();
+          static_cast<CGUIControlGroup*>(control)->CancelContainerListUpdates();
+        }
         else if (control->IsContainer())
+        {
           static_cast<CGUIBaseContainer*>(control)->FreeItemImages();
+          static_cast<CGUIBaseContainer*>(control)->CancelPendingListUpdate();
+        }
       }
       pos += Size(control) + m_itemGap;
       continue;

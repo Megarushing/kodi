@@ -551,3 +551,15 @@ void CGUIControlGroup::FreeContainerItemImages()
       static_cast<CGUIControlGroup*>(child)->FreeContainerItemImages();
   }
 }
+
+// LOCAL PATCH (megarushing): see CGUIBaseContainer::CancelPendingListUpdate
+void CGUIControlGroup::CancelContainerListUpdates()
+{
+  for (CGUIControl* child : m_children)
+  {
+    if (child->IsContainer())
+      static_cast<CGUIBaseContainer*>(child)->CancelPendingListUpdate();
+    else if (child->IsGroup())
+      static_cast<CGUIControlGroup*>(child)->CancelContainerListUpdates();
+  }
+}

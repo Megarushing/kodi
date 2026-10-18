@@ -51,6 +51,7 @@ public:
   void FreeResources(bool immediately = false) override;
   //! LOCAL PATCH (megarushing): drop every item's layout (and so its images) but keep the items,
   //! for rows scrolled far off screen in a grouplist. Layouts are rebuilt on the next Process.
+  void CancelPendingListUpdate(); // LOCAL PATCH (megarushing): drop a queued widget fetch of an off-screen row
   void FreeItemImages();
   void UpdateVisibility(const CGUIListItem *item = NULL) override;
 
