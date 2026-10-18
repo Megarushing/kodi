@@ -438,6 +438,19 @@ bool CPeripheralBusAndroid::ConvertToPeripheralScanResult(
     return false;
   }
 
+  // LOCAL PATCH (megarushing): virtual remotes ("virtual-remote", "virtual-search", NVIDIA
+  // "shield-ask-remote") report SOURCE_GAMEPAD without SOURCE_JOYSTICK. Their services are killed and
+  // restarted by Android under memory pressure, so the device comes and goes during playback, and
+  // every joystick registration froze the video for 100-450 ms (measured: 5 of 5 injected devices).
+  // Without the joystick registration their keys still arrive through the normal key path.
+  if (!inputDevice.supportsSource(CJNIViewInputDevice::SOURCE_JOYSTICK) &&
+      inputDevice.supportsSource(CJNIViewInputDevice::SOURCE_KEYBOARD))
+  {
+    CLog::Log(LOGINFO, "CPeripheralBusAndroid: ignoring keyboard-type gamepad \"{}\" (no joystick axes)",
+              inputDevice.getName());
+    return false;
+  }
+
   peripheralScanResult.m_type = PERIPHERAL_JOYSTICK;
   peripheralScanResult.m_strLocation = GetDeviceLocation(inputDevice.getId());
   peripheralScanResult.m_iVendorId = inputDevice.getVendorId();
