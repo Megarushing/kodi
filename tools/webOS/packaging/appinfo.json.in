@@ -4,7 +4,7 @@
   "vendor": "@COMPANY_NAME@",
   "type": "native",
   "main": "@APP_BINARY@",
-  "title": "@APP_NAME@",
+  "title": "Kodi Mega",
   "icon": "icon.png",
   "largeIcon": "largeIcon.png",
   "iconColor": "#FFFFFF",
