@@ -14,6 +14,7 @@
 #include "utils/StringUtils.h"
 #include "windowing/GraphicContext.h"
 
+#include <algorithm>
 #include <stdexcept>
 
 CreateGUITextureFunc CGUITexture::m_createGUITextureFunc;
@@ -331,8 +332,23 @@ bool CGUITexture::AllocResources()
     }
     if (m_isAllocated != NORMAL)
     { // use our large image background loader
+      // LOCAL PATCH (megarushing): ask for a decode sized to this control (longest side x1.5,
+      // rounded up to 256/512/1024 px; bigger controls get the screen size as before).
+      if (!IsAllocated())
+      {
+        const float side = std::max(m_width, m_height) * 1.5f;
+        unsigned int bucket = 0;
+        if (side > 0 && side <= 256)
+          bucket = 256;
+        else if (side > 0 && side <= 512)
+          bucket = 512;
+        else if (side > 0 && side <= 1024)
+          bucket = 1024;
+        m_largeKey = bucket ? m_info.filename + LARGE_TEXTURE_SIZE_SEP + std::to_string(bucket)
+                            : m_info.filename;
+      }
       CTextureArray texture;
-      if (CServiceBroker::GetGUI()->GetLargeTextureManager().GetImage(m_info.filename, texture, !IsAllocated(), m_use_cache))
+      if (CServiceBroker::GetGUI()->GetLargeTextureManager().GetImage(m_largeKey, texture, !IsAllocated(), m_use_cache))
       {
         m_isAllocated = LARGE;
 
@@ -474,7 +490,9 @@ bool CGUITexture::CalculateSize()
 void CGUITexture::FreeResources(bool immediately /* = false */)
 {
   if (m_isAllocated == LARGE || m_isAllocated == LARGE_FAILED)
-    CServiceBroker::GetGUI()->GetLargeTextureManager().ReleaseImage(m_info.filename, immediately || (m_isAllocated == LARGE_FAILED));
+    CServiceBroker::GetGUI()->GetLargeTextureManager().ReleaseImage(
+        m_largeKey.empty() ? m_info.filename : m_largeKey,
+        immediately || (m_isAllocated == LARGE_FAILED)); // LOCAL PATCH (megarushing): same key as alloc
   else if (m_isAllocated == NORMAL && m_texture.size())
     CServiceBroker::GetGUI()->GetTextureManager().ReleaseTexture(m_info.filename, immediately);
 
