@@ -1,6 +1,6 @@
 # Kodi Mega
 
-Megarushing's personal Kodi fork, for the bedroom NVIDIA Shield (Android 11, 32-bit userspace).
+Megarushing's personal Kodi fork, for the bedroom NVIDIA Shield (Android 11, 32-bit userspace) and the LG webOS TVs (living room first).
 It installs next to the Play Store Kodi and does not replace it.
 
 - Base: upstream tag `21.2-Omega`. Branch: `mega`. Upstream updates: `git fetch upstream tag <tag>` + `git merge`.
@@ -35,6 +35,9 @@ It installs next to the Play Store Kodi and does not replace it.
 | `XBMCApp.cpp` (`stallwatch`) | Main-loop watchdog: on > 5 s heartbeat gap, logs `StallWatch:` lib+offset samples of the main thread | Diagnose navigation freezes / ANR kills without root. |
 | `tools/android/packaging/xbmc/AndroidManifest.xml.in` | `<profileable android:shell="true"/>` | Lets perfetto heapprofd profile native memory from adb (no runtime change, unlike debuggable). |
 | `tools/mega/build-android.sh` | Build script | Reproducible build (below). |
+| `xbmc/platform/linux/MemUtils.cpp` | `AlignedMalloc` returns `nullptr` on out-of-memory (was: uncaught exception) | Same #29091 image fix for the webOS (Linux) build; the Android fix lives in the Android-only file. |
+| `tools/webOS/packaging/appinfo.json.in`, `icon.png`, `largeIcon.png` | Title "Kodi Mega", icons from `tools/mega/branding/icon-master.png` | Tells it apart from the official Kodi in the LG launcher. |
+| `tools/mega/build-webos.sh` | webOS build script | Reproducible LG build (below). |
 
 ## Tags
 
@@ -57,6 +60,20 @@ Output: the signed APK in the repo root (`kodiapp-armeabi-v7a-release.apk`), and
 a debug build uses more memory and changes the memory crashes this fork exists to fix.
 
 First full build on MegaServer (4 cores, 2026-10-17): about 1 h 50 min. Later builds only recompile what changed.
+
+## Build for LG webOS (MegaServer)
+
+```sh
+tmux new -s kodiwebos 'tools/mega/build-webos.sh all 2>&1 | tee ~/kodi-mega-webos/logs/build.log'
+# steps: toolchain | depends | kodi | ipk
+```
+
+- Toolchain: openlgtv/buildroot-nc4 release `webos-b17b4cc` (GCC 12.2, glibc 2.12 sysroot, runs on webOS 6+). The 2026.08 release (GCC 16) is too new for this Omega code.
+- Packaging needs `ares-package` (`npm i -g @webos-tools/cli`). Output: `~/kodi-mega-webos/build/org.xbmc.kodimega_<ver>_arm.ipk` (~74 MB).
+- First full build (2026-10-18): depends ~1 h, Kodi ~35 min.
+- Shared code must build on old glibc: no `gettid()` (use `syscall(SYS_gettid)`).
+- NOT active on webOS: the Android-only fixes (memory guard, MediaCodec/DV, AudioTrack, JNI, splash, stall watch).
+- Install / test on the TVs (rooted, Homebrew Channel): my-skills `lg-webos-tv` (`lgtv.sh living install <ipk>`, `shot`, `kodi <method>`). Installs next to the official Kodi (`org.xbmc.kodi`), data in the app folder's `.kodi`.
 
 ## Read a crash
 
