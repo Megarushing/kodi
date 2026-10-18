@@ -534,9 +534,11 @@ bool CDVDVideoCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
       // NVIDIA's DOVI decoder crashed the Shield's graphics composer within seconds of every start
       // (Android soft reboot; "Unknown: Killer Robots" YTS 4K, bedroom Shield 2026-10-18 01:59/02:12/
       // 06:10). Drop the DV layer and decode the base layer as plain HEVC instead.
+      // Only the proven contradiction: record says 8.1 (HDR10 base) but the stream says BT.709.
+      // An unknown transfer, 8.2 (SDR base) and 8.4 (HLG) keep Dolby Vision.
       if (!removeDovi && (isDvhe || isDvh1) && m_hints.dovi.dv_profile == 8 &&
-          m_hints.colorTransferCharacteristic != AVCOL_TRC_SMPTE2084 &&
-          m_hints.colorTransferCharacteristic != AVCOL_TRC_ARIB_STD_B67)
+          m_hints.dovi.dv_bl_signal_compatibility_id == 1 &&
+          m_hints.colorTransferCharacteristic == AVCOL_TRC_BT709)
       {
         CLog::Log(LOGWARNING,
                   "CDVDVideoCodecAndroidMediaCodec::Open Dolby Vision profile 8 with non-HDR base "

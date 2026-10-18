@@ -1884,6 +1884,10 @@ int CGUIWindowManager::UnloadHiddenKeptWindows()
     if (id == active || id == WINDOW_FULLSCREEN_VIDEO || id == WINDOW_VISUALISATION ||
         window->IsDialog() || window->IsActive() || IsWindowVisible(id))
       continue;
+    // Python and binary add-ons keep raw pointers to their windows' controls (xbmcgui.Control,
+    // addControl): deleting those controls here was a use-after-free. Their windows stay loaded.
+    if (IsPythonWindow(id) || IsAddonWindow(id))
+      continue;
     if (window->GetLoadType() != CGUIWindow::KEEP_IN_MEMORY &&
         window->GetLoadType() != CGUIWindow::LOAD_ON_GUI_INIT)
       continue;

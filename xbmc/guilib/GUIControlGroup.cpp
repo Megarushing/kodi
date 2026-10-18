@@ -579,10 +579,11 @@ void CGUIControlGroup::FreeContainerItemImages()
 {
   for (CGUIControl* child : m_children)
   {
-    if (child->IsContainer())
-      static_cast<CGUIBaseContainer*>(child)->FreeItemImages();
-    else if (child->IsGroup())
-      static_cast<CGUIControlGroup*>(child)->FreeContainerItemImages();
+    // dynamic_cast: IsContainer() is also true for CGUIEPGGridContainer, which is no CGUIBaseContainer
+    if (auto* container = dynamic_cast<CGUIBaseContainer*>(child))
+      container->FreeItemImages();
+    else if (auto* group = dynamic_cast<CGUIControlGroup*>(child))
+      group->FreeContainerItemImages();
   }
 }
 
@@ -591,9 +592,9 @@ void CGUIControlGroup::CancelContainerListUpdates()
 {
   for (CGUIControl* child : m_children)
   {
-    if (child->IsContainer())
-      static_cast<CGUIBaseContainer*>(child)->CancelPendingListUpdate();
-    else if (child->IsGroup())
-      static_cast<CGUIControlGroup*>(child)->CancelContainerListUpdates();
+    if (auto* container = dynamic_cast<CGUIBaseContainer*>(child))
+      container->CancelPendingListUpdate();
+    else if (auto* group = dynamic_cast<CGUIControlGroup*>(child))
+      group->CancelContainerListUpdates();
   }
 }
