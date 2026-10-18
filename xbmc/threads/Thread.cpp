@@ -10,6 +10,8 @@
 
 #include "Thread.h"
 
+#include <system_error>
+
 #include "IRunnable.h"
 #include "commons/Exception.h"
 #include "threads/IThreadImpl.h"
@@ -105,18 +107,11 @@ void CThread::Create(bool bAutoDelete)
   // lock?
   //std::unique_lock l(m_CriticalSection);
 
-  std::promise<bool> prom;
-
-  {
-    // The std::thread internals must be set prior to the lambda doing
-    //   any work. This will cause the lambda to wait until m_thread
-    //   is fully initialized. Interestingly, using a std::atomic doesn't
-    //   have the appropriate memory barrier behavior to accomplish the
-    //   same thing so a full system mutex needs to be used.
-    std::unique_lock blockLambdaTillDone(m_CriticalSection);
-    m_future = prom.get_future().share();
-    ++m_threadGeneration;
-    m_thread = new std::thread([](CThread* pThread, std::promise<bool> promise)
+  // LOCAL PATCH (megarushing): std::thread throws std::system_error when the OS refuses a new thread
+  // (out of memory / address space for its stack). Uncaught, that aborted Kodi (bedroom Shield
+  // 2026-10-16 12:07, CThread::Create). Retry twice after a short pause, then give up on this one
+  // thread with an error instead of killing Kodi.
+  auto threadMain = [](CThread* pThread, std::promise<bool> promise)
     {
       try
       {
@@ -172,8 +167,37 @@ void CThread::Create(bool bAutoDelete)
       }
 
       promise.set_value(true);
-    }, this, std::move(prom));
-  } // let the lambda proceed
+    };
+
+  for (int attempt = 0;; ++attempt)
+  {
+    std::promise<bool> prom;
+    try
+    {
+      // The std::thread internals must be set prior to the lambda doing
+      //   any work. This will cause the lambda to wait until m_thread
+      //   is fully initialized. Interestingly, using a std::atomic doesn't
+      //   have the appropriate memory barrier behavior to accomplish the
+      //   same thing so a full system mutex needs to be used.
+      std::unique_lock blockLambdaTillDone(m_CriticalSection);
+      m_future = prom.get_future().share();
+      ++m_threadGeneration;
+      m_thread = new std::thread(threadMain, this, std::move(prom));
+      break;
+    } // let the lambda proceed
+    catch (const std::system_error& e)
+    {
+      m_thread = nullptr;
+      if (attempt >= 2)
+      {
+        CLog::Log(LOGERROR, "CThread::Create - cannot start thread {}: {}", m_ThreadName, e.what());
+        return;
+      }
+      CLog::Log(LOGWARNING, "CThread::Create - thread {} failed to start ({}), retrying", m_ThreadName,
+                e.what());
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+  }
 
   m_StartEvent.Wait(); // wait for the thread just spawned to set its internals
 }

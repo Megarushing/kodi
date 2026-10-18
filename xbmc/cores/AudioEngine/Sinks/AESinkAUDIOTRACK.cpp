@@ -163,6 +163,42 @@ jni::CJNIAudioTrack *CAESinkAUDIOTRACK::CreateAudioTrack(int stream, int sampleR
 int CAESinkAUDIOTRACK::AudioTrackWrite(char* audioData, int offsetInBytes, int sizeInBytes)
 {
   int     written = 0;
+  if (m_jniAudioFormat == CJNIAudioFormat::ENCODING_PCM_FLOAT && CJNIBase::GetSDKVersion() >= 23)
+  {
+    // LOCAL PATCH (megarushing): write(float[]) built a new Java array per period and Android's
+    // AudioTrack.write copied it again natively (GetFloatArrayElements -> operator new); under memory
+    // pressure that allocation failed -> uncaught std::bad_alloc in ART -> abort (bedroom Shield
+    // 2026-10-15 17:31, 2026-10-17 20:00). A direct ByteBuffer is read in place: no allocation per write.
+    const int bytes = sizeInBytes - offsetInBytes;
+    if (!m_directByteBuffer || static_cast<int>(m_directbuf.size()) < bytes)
+    {
+      m_directByteBuffer.reset();
+      m_directbuf.resize(bytes);
+      JNIEnv* env = xbmc_jnienv();
+      jobject local = env->NewDirectByteBuffer(m_directbuf.data(), m_directbuf.size());
+      if (local && !env->ExceptionCheck())
+      {
+        jni::jhobject holder = jni::jhobject::fromJNI(local);
+        holder.setGlobal();
+        m_directByteBuffer = std::make_unique<CJNIByteBuffer>(holder);
+      }
+      else
+        env->ExceptionClear();
+    }
+    if (m_directByteBuffer)
+    {
+      memcpy(m_directbuf.data(), audioData + offsetInBytes, bytes);
+      jni::call_method<jni::jhobject>(m_directByteBuffer->get_raw(), "clear", "()Ljava/nio/Buffer;"); // position 0
+      written = m_at_jni->write(*m_directByteBuffer, bytes, CJNIAudioTrack::WRITE_BLOCKING);
+      if (xbmc_jnienv()->ExceptionCheck())
+      {
+        xbmc_jnienv()->ExceptionClear();
+        written = 0;
+      }
+      return written;
+    }
+    // fall through to the array path if the direct buffer could not be created
+  }
   if (m_jniAudioFormat == CJNIAudioFormat::ENCODING_PCM_FLOAT)
   {
     if (m_floatbuf.size() < (sizeInBytes - offsetInBytes) / sizeof(float))

@@ -112,6 +112,8 @@
 #include <androidjni/WindowManager.h>
 #include <crossguid/guid.hpp>
 #include <dlfcn.h>
+#include <atomic>
+#include <new>
 #include <jni.h>
 #include <unistd.h>
 
@@ -674,6 +676,13 @@ void CXBMCApp::RequestVisibleBehind(bool requested)
   CLog::Log(LOGDEBUG, "Visible Behind request: {}", m_hasReqVisible ? "true" : "false");
 }
 
+namespace
+{
+// LOCAL PATCH (megarushing): defined with the memory guard below.
+void ArmEmergencyReserve();
+void OnAllocationFailure();
+} // namespace
+
 void CXBMCApp::run()
 {
   int status = 0;
@@ -692,6 +701,9 @@ void CXBMCApp::run()
     return;
 
   m_firstrun = false;
+  // LOCAL PATCH (megarushing): emergency reserve for failing operator new (see MemoryGuard).
+  ArmEmergencyReserve();
+  std::set_new_handler(OnAllocationFailure);
   android_printf(" => running XBMC_Run...");
 
   CAppEnvironment::SetUp(std::make_shared<CAppParams>());
@@ -1042,6 +1054,33 @@ struct GuardState
 };
 GuardState g_memoryGuard;
 
+// Emergency reserve: address space held back so that a failing operator new in Kodi's own code
+// can get room once more instead of throwing std::bad_alloc (uncaught -> abort, 3 crashes in the
+// bedroom Shield census). Untouched pages cost no RAM, only 32-bit address space.
+constexpr size_t GUARD_RESERVE_BYTES = 24 * 1024 * 1024;
+std::atomic<void*> g_emergencyReserve{nullptr};
+std::atomic<int> g_reserveReleases{0};
+
+void ArmEmergencyReserve()
+{
+  if (!g_emergencyReserve.load())
+    g_emergencyReserve = malloc(GUARD_RESERVE_BYTES);
+}
+
+void OnAllocationFailure()
+{
+  void* reserve = g_emergencyReserve.exchange(nullptr);
+  if (reserve)
+  {
+    free(reserve);
+    g_reserveReleases++;
+    CXBMCApp::android_printf("MemoryGuard: allocation failed, emergency reserve released (%u MB)",
+                   static_cast<unsigned>(GUARD_RESERVE_BYTES >> 20));
+    return; // operator new retries
+  }
+  std::set_new_handler(nullptr); // nothing left: let this allocation throw as usual
+}
+
 void MemoryGuardProcess(bool playingVideo)
 {
   using namespace std::chrono;
@@ -1100,6 +1139,13 @@ void MemoryGuardProcess(bool playingVideo)
               level == 0 ? "ok" : (level == 1 ? "pressure" : "CRITICAL"), avail / 1024,
               swapFree / 1024, vmSize / 1024, rss / 1024, before.allocated, before.referenced,
               before.queued, before.pixelBytes >> 20, before.pixelBytesReferenced >> 20);
+  }
+  if (g_reserveReleases.exchange(0) > 0)
+    CLog::Log(LOGWARNING, "MemoryGuard: an allocation failed and used the emergency reserve");
+  if (level == 0 && !g_emergencyReserve.load())
+  {
+    ArmEmergencyReserve(); // re-arm once memory is fine again
+    std::set_new_handler(OnAllocationFailure);
   }
   if (level != g_memoryGuard.level || now >= g_memoryGuard.nextReport)
     g_memoryGuard.nextReport = now + milliseconds(GUARD_REPORT_EVERY_MS);
