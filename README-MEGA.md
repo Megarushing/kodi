@@ -29,6 +29,9 @@ It installs next to the Play Store Kodi and does not replace it.
 | `xbmc/threads/Thread.cpp` | `CThread::Create` retries 2x, then logs instead of terminating | `std::system_error` from `pthread_create` (no memory for a stack) aborted Kodi. |
 | `XBMCApp.cpp` (emergency reserve) | 24 MB address-space reserve + `std::set_new_handler`: a failing `operator new` gets the reserve once; re-armed when memory is fine | Uncaught `std::bad_alloc` aborts. |
 | `GUIWindowManager.cpp` (`UnloadHiddenKeptWindows`) + memory guard | During video under critical memory, unload hidden kept-in-memory windows once (properties stay) | Frees menu memory during 4K playback; measured: Kodi RSS 419 -> 392 MB, did NOT remove Remux hitches. |
+| `DVDVideoCodecAndroidMediaCodec.cpp` (DV profile 8) | Dolby Vision profile 8 whose base layer is labelled SDR (bt709) decodes as plain HEVC | Such a stream sent to NVIDIA's DOVI decoder crashed the graphics composer within seconds (Android soft reboot; 3x on 2026-10-18). Verified playing after the fix. |
+| `Application.cpp` (`PlayFile`) + `XBMCApp.cpp` (`PrepareMemoryForPlayback`) | Before a video starts with < 600 MB free: unload hidden menus, free unused images/textures, purge heap | 4K Dolby Vision start-up burst after browsing -> low-memory kill. Reduces but does not remove it. |
+| `XBMCApp.cpp` (`stallwatch`) | Main-loop watchdog: on > 5 s heartbeat gap, logs `StallWatch:` lib+offset samples of the main thread | Diagnose navigation freezes / ANR kills without root. |
 | `tools/android/packaging/xbmc/AndroidManifest.xml.in` | `<profileable android:shell="true"/>` | Lets perfetto heapprofd profile native memory from adb (no runtime change, unlike debuggable). |
 | `tools/mega/build-android.sh` | Build script | Reproducible build (below). |
 
