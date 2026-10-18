@@ -114,6 +114,12 @@
 #include <androidjni/WindowManager.h>
 #include <crossguid/guid.hpp>
 #include <dlfcn.h>
+#include <thread>
+#include <pthread.h>
+#include <sys/syscall.h>
+#include <sys/ucontext.h>
+#include <signal.h>
+#include <link.h>
 #include <atomic>
 #include <new>
 #include <jni.h>
@@ -1176,6 +1182,163 @@ void MemoryGuardProcess(bool playingVideo)
 }
 } // namespace
 
+
+// LOCAL PATCH (megarushing): main-loop stall watchdog.
+// Kodi's main loop sometimes stops for 30+ s (navigation freezes, JSON-RPC timeouts) and, when Android
+// then destroys the window, surfaceDestroyed() waits on that loop and Android kills Kodi with an ANR
+// (bedroom Shield 2026-10-18 05:20, 05:35). No root = no stack dump from outside, so the loop reports
+// itself: if the heartbeat stops for > 5 s, a watchdog thread signals the main thread; the handler
+// copies pc/lr and return-address candidates from the stack into a static buffer (no logging, no
+// allocation inside the handler); the watchdog logs them as "lib+offset" for offline symbolizing.
+namespace stallwatch
+{
+constexpr int STALL_MS = 5000;
+constexpr int REPORT_EVERY_MS = 10000;
+constexpr int MAX_ADDRS = 48;
+constexpr size_t MAX_SCAN_BYTES = 64 * 1024;
+
+struct Range { uintptr_t lo, hi; };
+Range g_ranges[16];
+int g_rangeCount = 0;
+std::atomic<int64_t> g_heartbeatMs{0};
+std::atomic<pid_t> g_appTid{0};
+uintptr_t g_stackLo = 0, g_stackHi = 0;
+volatile uintptr_t g_addrs[MAX_ADDRS];
+volatile int g_addrCount = 0;
+std::atomic<bool> g_captured{false};
+std::atomic<bool> g_started{false};
+
+int64_t NowMs()
+{
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+bool InRanges(uintptr_t a)
+{
+  for (int i = 0; i < g_rangeCount; i++)
+    if (a >= g_ranges[i].lo && a < g_ranges[i].hi)
+      return true;
+  return false;
+}
+
+int CollectRanges(struct dl_phdr_info* info, size_t, void*)
+{
+  const char* name = info->dlpi_name ? info->dlpi_name : "";
+  if (!strstr(name, "libkodi.so") && !strstr(name, "libc.so") && !strstr(name, "libc++") &&
+      !strstr(name, "libEGL") && !strstr(name, "libGLES") && !strstr(name, "libandroid") &&
+      !strstr(name, "libpython") && !strstr(name, "libutils") && !strstr(name, "libbinder") &&
+      !strstr(name, "libgui") && !strstr(name, "libsqlite"))
+    return 0;
+  for (int i = 0; i < info->dlpi_phnum && g_rangeCount < 16; i++)
+  {
+    const auto& ph = info->dlpi_phdr[i];
+    if (ph.p_type == PT_LOAD && (ph.p_flags & PF_X))
+      g_ranges[g_rangeCount++] = {info->dlpi_addr + ph.p_vaddr, info->dlpi_addr + ph.p_vaddr + ph.p_memsz};
+  }
+  return 0;
+}
+
+void Handler(int, siginfo_t*, void* uctx)
+{
+  const auto* uc = static_cast<ucontext_t*>(uctx);
+  int n = 0;
+  g_addrs[n++] = uc->uc_mcontext.arm_pc;
+  g_addrs[n++] = uc->uc_mcontext.arm_lr;
+  uintptr_t sp = uc->uc_mcontext.arm_sp;
+  uintptr_t end = g_stackHi;
+  if (sp >= g_stackLo && sp < g_stackHi)
+  {
+    if (end - sp > MAX_SCAN_BYTES)
+      end = sp + MAX_SCAN_BYTES;
+    for (uintptr_t p = sp; p + sizeof(uintptr_t) <= end && n < MAX_ADDRS; p += sizeof(uintptr_t))
+    {
+      const uintptr_t v = *reinterpret_cast<const uintptr_t*>(p);
+      if (InRanges(v))
+        g_addrs[n++] = v;
+    }
+  }
+  g_addrCount = n;
+  g_captured = true;
+}
+
+std::string Describe(uintptr_t a)
+{
+  Dl_info info;
+  if (dladdr(reinterpret_cast<void*>(a), &info) && info.dli_fname)
+  {
+    const char* base = strrchr(info.dli_fname, '/');
+    return StringUtils::Format("{}+{:#x}", base ? base + 1 : info.dli_fname,
+                               a - reinterpret_cast<uintptr_t>(info.dli_fbase));
+  }
+  return StringUtils::Format("{:#x}", a);
+}
+
+void Watch()
+{
+  const int sig = SIGRTMIN + 10;
+  struct sigaction sa = {};
+  sa.sa_sigaction = Handler;
+  sa.sa_flags = SA_SIGINFO | SA_RESTART;
+  sigaction(sig, &sa, nullptr);
+  int64_t stallStart = 0, lastReport = 0;
+  while (true)
+  {
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    const int64_t now = NowMs(), beat = g_heartbeatMs.load();
+    if (beat == 0 || g_appTid == 0)
+      continue;
+    if (now - beat < STALL_MS)
+    {
+      if (stallStart)
+        CLog::Log(LOGWARNING, "StallWatch: main loop recovered after {} ms", now - stallStart);
+      stallStart = 0;
+      continue;
+    }
+    if (!stallStart)
+      stallStart = beat;
+    if (lastReport && now - lastReport < REPORT_EVERY_MS)
+      continue;
+    lastReport = now;
+    g_captured = false;
+    syscall(SYS_tgkill, getpid(), g_appTid.load(), sig);
+    for (int i = 0; i < 50 && !g_captured; i++)
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    if (!g_captured)
+    {
+      CLog::Log(LOGWARNING, "StallWatch: main loop stalled {} ms, no sample", now - stallStart);
+      continue;
+    }
+    std::string trace;
+    for (int i = 0; i < g_addrCount; i++)
+      trace += (i ? " " : "") + Describe(g_addrs[i]);
+    CLog::Log(LOGWARNING, "StallWatch: main loop stalled {} ms: {}", now - stallStart, trace);
+  }
+}
+
+// Called from the main loop (CXBMCApp::ProcessSlow, every 500 ms).
+void Beat()
+{
+  if (!g_started.exchange(true))
+  {
+    g_appTid = gettid();
+    pthread_attr_t attr;
+    if (pthread_getattr_np(pthread_self(), &attr) == 0)
+    {
+      void* addr = nullptr;
+      size_t size = 0;
+      pthread_attr_getstack(&attr, &addr, &size);
+      g_stackLo = reinterpret_cast<uintptr_t>(addr);
+      g_stackHi = g_stackLo + size;
+      pthread_attr_destroy(&attr);
+    }
+    dl_iterate_phdr(CollectRanges, nullptr);
+    std::thread(Watch).detach();
+  }
+  g_heartbeatMs = NowMs();
+}
+} // namespace stallwatch
+
 void CXBMCApp::PrepareMemoryForPlayback()
 {
   if (!CServiceBroker::GetAppMessenger() || !CServiceBroker::GetAppMessenger()->IsProcessThread())
@@ -1205,6 +1368,7 @@ void CXBMCApp::ProcessSlow()
       m_mediaSession->isActive())
     UpdateSessionState();
 
+  stallwatch::Beat(); // LOCAL PATCH (megarushing)
   MemoryGuardProcess((m_playback_state & PLAYBACK_STATE_PLAYING) &&
                      (m_playback_state & PLAYBACK_STATE_VIDEO)); // LOCAL PATCH (megarushing)
 }
