@@ -986,6 +986,9 @@ constexpr long GUARD_PRESSURE_VMSIZE_KB = 3000L * 1024; // 32-bit address space 
 constexpr long GUARD_CRITICAL_VMSIZE_KB = 3400L * 1024;
 constexpr int GUARD_CHECK_EVERY_MS = 2000;
 constexpr int GUARD_RELIEF_EVERY_MS = 10000; // under plain pressure, at most one relief pass per 10 s
+// While a video plays, free RAM sits low by nature (decoder buffers) and images are not the issue:
+// relieve at most every 30 s and skip the heap purge, which runs on this (render) thread.
+constexpr int GUARD_RELIEF_EVERY_MS_VIDEO = 30000;
 constexpr int GUARD_REPORT_EVERY_MS = 60000; // routine "MemoryGuard: ok" line
 constexpr int GUARD_M_PURGE = -101; // bionic mallopt M_PURGE (API 28+): return free heap pages to the OS
 
@@ -1018,7 +1021,7 @@ struct GuardState
 };
 GuardState g_memoryGuard;
 
-void MemoryGuardProcess()
+void MemoryGuardProcess(bool playingVideo)
 {
   using namespace std::chrono;
   const auto now = steady_clock::now();
@@ -1045,16 +1048,18 @@ void MemoryGuardProcess()
     level = 2;
 
   const auto before = gui->GetLargeTextureManager().GetStats();
-  const bool relieve = level == 2 || (level == 1 && now >= g_memoryGuard.nextRelief);
+  const bool relieve = playingVideo ? (level >= 1 && now >= g_memoryGuard.nextRelief)
+                                    : (level == 2 || (level == 1 && now >= g_memoryGuard.nextRelief));
   if (relieve)
   {
-    g_memoryGuard.nextRelief = now + milliseconds(GUARD_RELIEF_EVERY_MS);
+    g_memoryGuard.nextRelief =
+        now + milliseconds(playingVideo ? GUARD_RELIEF_EVERY_MS_VIDEO : GUARD_RELIEF_EVERY_MS);
     gui->GetLargeTextureManager().CleanupUnusedImages(true);
     gui->GetTextureManager().FreeUnusedTextures(0);
     // mallopt is declared only for API >= 26; Kodi builds against API 21, so look it up at runtime.
     using MalloptFn = int (*)(int, int);
     static const auto mallopt_fn = reinterpret_cast<MalloptFn>(dlsym(RTLD_DEFAULT, "mallopt"));
-    if (mallopt_fn)
+    if (mallopt_fn && !playingVideo)
       mallopt_fn(GUARD_M_PURGE, 0);
     const auto after = gui->GetLargeTextureManager().GetStats();
     const long rssAfter = ReadProcKb("/proc/self/status", "VmRSS");
@@ -1087,7 +1092,8 @@ void CXBMCApp::ProcessSlow()
       m_mediaSession->isActive())
     UpdateSessionState();
 
-  MemoryGuardProcess(); // LOCAL PATCH (megarushing)
+  MemoryGuardProcess((m_playback_state & PLAYBACK_STATE_PLAYING) &&
+                     (m_playback_state & PLAYBACK_STATE_VIDEO)); // LOCAL PATCH (megarushing)
 }
 
 std::vector<androidPackage> CXBMCApp::GetApplications() const
