@@ -49,6 +49,7 @@ public:
 
   void AddControl(CGUIControl *control, int position = -1) override;
   void ClearAll() override;
+  bool RemoveControl(const CGUIControl* control) override; // LOCAL PATCH (megarushing)
 
   virtual std::string GetLabel(int info) const;
   bool GetCondition(int condition, int data) const override;

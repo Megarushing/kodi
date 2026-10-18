@@ -83,19 +83,23 @@ void CGUIControlGroupList::Process(unsigned int currentTime, CDirtyRegionList &d
     // drawn (and only drawn images move to the GPU and free their RAM copy): measured 2026-10-18 on
     // the 2 GB bedroom Shield, 595 referenced never-drawn images = 274 MB, then a low-memory kill.
     // Items stay loaded, so scrolling back rebuilds the posters from the disk cache, no refetch.
-    if (control->IsVisible() && !control->HasFocus() && IsControlFarOffScreen(pos, control))
+    // A child with a running or queued visibility/window animation is still processed, or the
+    // animation never advances (a window waiting for its close animation would never close).
+    if (control->IsVisible() && !control->HasFocus() && IsControlFarOffScreen(pos, control) &&
+        !control->IsAnimating(ANIM_TYPE_WINDOW_CLOSE) && !control->IsAnimating(ANIM_TYPE_WINDOW_OPEN) &&
+        !control->IsAnimating(ANIM_TYPE_HIDDEN) && !control->IsAnimating(ANIM_TYPE_VISIBLE))
     {
       if (m_farOffReleased.insert(control).second)
       {
-        if (control->IsGroup())
+        if (auto* group = dynamic_cast<CGUIControlGroup*>(control))
         {
-          static_cast<CGUIControlGroup*>(control)->FreeContainerItemImages();
-          static_cast<CGUIControlGroup*>(control)->CancelContainerListUpdates();
+          group->FreeContainerItemImages();
+          group->CancelContainerListUpdates();
         }
-        else if (control->IsContainer())
+        else if (auto* container = dynamic_cast<CGUIBaseContainer*>(control))
         {
-          static_cast<CGUIBaseContainer*>(control)->FreeItemImages();
-          static_cast<CGUIBaseContainer*>(control)->CancelPendingListUpdate();
+          container->FreeItemImages();
+          container->CancelPendingListUpdate();
         }
       }
       pos += Size(control) + m_itemGap;
@@ -373,9 +377,18 @@ void CGUIControlGroupList::AddControl(CGUIControl *control, int position /*= -1*
 
 void CGUIControlGroupList::ClearAll()
 {
+  m_farOffReleased.clear(); // LOCAL PATCH (megarushing): the children are deleted below
   m_totalSize = 0;
   CGUIControlGroup::ClearAll();
   m_scroller.SetValue(0);
+}
+
+// LOCAL PATCH (megarushing): forget a removed child, so a new control at the same address is
+// released when it goes far off screen.
+bool CGUIControlGroupList::RemoveControl(const CGUIControl* control)
+{
+  m_farOffReleased.erase(control);
+  return CGUIControlGroup::RemoveControl(control);
 }
 
 #define CLAMP(x, low, high)  (((x) > (high)) ? (high) : (((x) < (low)) ? (low) : (x)))

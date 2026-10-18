@@ -109,8 +109,8 @@ void CThread::Create(bool bAutoDelete)
 
   // LOCAL PATCH (megarushing): std::thread throws std::system_error when the OS refuses a new thread
   // (out of memory / address space for its stack). Uncaught, that aborted Kodi (bedroom Shield
-  // 2026-10-16 12:07, CThread::Create). Retry twice after a short pause, then give up on this one
-  // thread with an error instead of killing Kodi.
+  // 2026-10-16 12:07, CThread::Create). Retry twice after a short pause (address space is often
+  // freed again within ms); if it still fails, rethrow as upstream does.
   auto threadMain = [](CThread* pThread, std::promise<bool> promise)
     {
       try
@@ -188,8 +188,15 @@ void CThread::Create(bool bAutoDelete)
       m_thread = nullptr;
       if (attempt >= 2)
       {
+        // Give up loudly: returning with no thread looked like success to callers (VideoPlayer
+        // "playing", JobManager counting a worker that never runs, SetPriority on a null impl) and
+        // StopThread/destructor waited forever on m_StartEvent. Leave the object stoppable, then
+        // rethrow as upstream does.
+        m_bStop = true;
+        m_StopEvent.Set();
+        m_StartEvent.Set();
         CLog::Log(LOGERROR, "CThread::Create - cannot start thread {}: {}", m_ThreadName, e.what());
-        return;
+        throw;
       }
       CLog::Log(LOGWARNING, "CThread::Create - thread {} failed to start ({}), retrying", m_ThreadName,
                 e.what());

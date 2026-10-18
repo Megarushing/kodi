@@ -266,7 +266,7 @@ private:
   IInputDeviceCallbacks* m_inputDeviceCallbacks{nullptr};
   IInputDeviceEventHandler* m_inputDeviceEventHandler{nullptr};
   bool m_hasReqVisible{false};
-  bool m_firstrun{true};
+  std::atomic<bool> m_firstrun{true}; // LOCAL PATCH (megarushing): read by onStart, written by run()
   std::atomic<bool> m_exiting{false};
   int m_exitCode{0};
   bool m_bResumePlayback{false};

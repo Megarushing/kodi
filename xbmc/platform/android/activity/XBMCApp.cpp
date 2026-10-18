@@ -272,6 +272,7 @@ void CXBMCApp::onStart()
       if (m_runActive)
         return; // the previous run() is still waiting for the window and will pick it up
       m_thread.join();
+      m_runActive = true; // set before the thread exists, so a quick next onStart never joins it
       m_thread = std::thread(&CXBMCApp::run, this);
       return;
     }
@@ -281,6 +282,7 @@ void CXBMCApp::onStart()
     CAESinkAUDIOTRACK::Register();
 
     // Create thread to run Kodi main event loop
+    m_runActive = true; // LOCAL PATCH (megarushing): see the restart path above
     m_thread = std::thread(&CXBMCApp::run, this);
 
     // Some intent filters MUST be registered in code rather than through the manifest
@@ -686,12 +688,15 @@ namespace
 void ArmEmergencyReserve();
 void OnAllocationFailure();
 } // namespace
+namespace stallwatch
+{
+void Stop(); // LOCAL PATCH (megarushing): defined with the stall watchdog below.
+} // namespace stallwatch
 
 void CXBMCApp::run()
 {
   int status = 0;
-  // LOCAL PATCH (megarushing): see onStart.
-  m_runActive = true;
+  // LOCAL PATCH (megarushing): see onStart (m_runActive is set there, before this thread starts).
   struct RunActiveReset
   {
     std::atomic<bool>& flag;
@@ -712,6 +717,7 @@ void CXBMCApp::run()
 
   CAppEnvironment::SetUp(std::make_shared<CAppParams>());
   status = XBMC_Run(true);
+  stallwatch::Stop(); // LOCAL PATCH (megarushing): the watchdog logs; stop it before logging goes away
   CAppEnvironment::TearDown();
 
   android_printf(" => XBMC_Run finished with %d", status);
@@ -1248,6 +1254,9 @@ volatile uintptr_t g_addrs[MAX_ADDRS];
 volatile int g_addrCount = 0;
 std::atomic<bool> g_captured{false};
 std::atomic<bool> g_started{false};
+std::atomic<bool> g_stop{false};
+std::thread* g_watch = nullptr; // never a static std::thread: a joinable one at exit() = std::terminate
+static_assert(std::atomic<bool>::is_always_lock_free, "signal handler needs a lock-free flag");
 
 int64_t NowMs()
 {
@@ -1325,9 +1334,11 @@ void Watch()
   CLog::Log(LOGINFO, "StallWatch: armed (signal {}, sigaction {}, {} code ranges, stack {:#x}-{:#x})",
             sig, rc, g_rangeCount, g_stackLo, g_stackHi);
   int64_t stallStart = 0, lastReport = 0;
-  while (true)
+  while (!g_stop)
   {
     std::this_thread::sleep_for(std::chrono::seconds(1));
+    if (g_stop)
+      break;
     const int64_t now = NowMs(), beat = g_heartbeatMs.load();
     if (beat == 0 || g_appTid == 0)
       continue;
@@ -1376,9 +1387,19 @@ void Beat()
       pthread_attr_destroy(&attr);
     }
     dl_iterate_phdr(CollectRanges, nullptr);
-    std::thread(Watch).detach();
+    g_watch = new std::thread(Watch);
   }
   g_heartbeatMs = NowMs();
+}
+
+// Called from run() after the main loop ended, before logging is torn down (Watch logs).
+void Stop()
+{
+  g_stop = true;
+  if (g_watch && g_watch->joinable())
+    g_watch->join();
+  delete g_watch;
+  g_watch = nullptr;
 }
 } // namespace stallwatch
 
