@@ -34,6 +34,7 @@
 #include "guilib/GUIComponent.h"
 #include "GUILargeTextureManager.h" // LOCAL PATCH (megarushing): memory guard
 #include "guilib/TextureManager.h" // LOCAL PATCH (megarushing): memory guard
+#include "guilib/GUIWindowManager.h" // LOCAL PATCH (megarushing): memory guard
 #include "guilib/GUIWindowManager.h"
 #include "guilib/guiinfo/GUIInfoLabels.h"
 #include "input/actions/Action.h"
@@ -1051,6 +1052,7 @@ struct GuardState
   std::chrono::steady_clock::time_point nextRelief{};
   std::chrono::steady_clock::time_point nextReport{};
   int level = 0;
+  bool unloadedThisPlayback = false;
 };
 GuardState g_memoryGuard;
 
@@ -1099,6 +1101,11 @@ void MemoryGuardProcess(bool playingVideo)
   const long vmSize = ReadProcKb("/proc/self/status", "VmSize");
   const long rss = ReadProcKb("/proc/self/status", "VmRSS");
 
+  // LOCAL PATCH (megarushing): during a video under critical memory pressure (4K Dolby Vision on
+  // the 2 GB Shield: decoder + composer take ~600 MB of graphics memory and zram thrashes, which
+  // shows as stutter), unload the hidden menu windows once per playback; they reload afterwards.
+  if (!playingVideo)
+    g_memoryGuard.unloadedThisPlayback = false;
   int level = 0;
   if ((avail >= 0 && avail < GUARD_PRESSURE_AVAIL_KB) ||
       (swapTotal > 0 && swapFree >= 0 && swapFree < GUARD_PRESSURE_SWAPFREE_KB) ||
@@ -1107,6 +1114,15 @@ void MemoryGuardProcess(bool playingVideo)
   if ((avail >= 0 && avail < GUARD_CRITICAL_AVAIL_KB) || vmSize > GUARD_CRITICAL_VMSIZE_KB)
     level = 2;
 
+  if (playingVideo && level == 2 && !g_memoryGuard.unloadedThisPlayback)
+  {
+    g_memoryGuard.unloadedThisPlayback = true;
+    const int unloaded = gui->GetWindowManager().UnloadHiddenKeptWindows();
+    gui->GetLargeTextureManager().CleanupUnusedImages(true);
+    gui->GetTextureManager().FreeUnusedTextures(0);
+    CLog::Log(LOGWARNING, "MemoryGuard: playback under critical memory, unloaded {} hidden windows",
+              unloaded);
+  }
   const auto before = gui->GetLargeTextureManager().GetStats();
   const bool relieve = playingVideo ? (level >= 1 && now >= g_memoryGuard.nextRelief)
                                     : (level == 2 || (level == 1 && now >= g_memoryGuard.nextRelief));
