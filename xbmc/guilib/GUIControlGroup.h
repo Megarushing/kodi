@@ -74,6 +74,7 @@ public:
   bool IsGroup() const override { return true; }
   //! LOCAL PATCH (megarushing): release the images held by containers anywhere below this group,
   //! keeping their items (see CGUIControlGroupList::Process).
+  void CancelContainerListUpdates(); // LOCAL PATCH (megarushing)
   void FreeContainerItemImages();
 
 #ifdef _DEBUG

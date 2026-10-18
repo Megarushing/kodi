@@ -598,6 +598,9 @@ void CGUIWindow::OnDeinitWindow(int nextWindowID)
 
   SaveControlStates();
   m_active = false;
+  // LOCAL PATCH (megarushing): a window left in the background (skin hubs/tabs stay loaded) kept
+  // its queued widget fetches, which then took the few fetch slots from the window now shown.
+  CancelContainerListUpdates();
 }
 
 bool CGUIWindow::OnMessage(CGUIMessage& message)

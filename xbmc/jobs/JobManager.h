@@ -91,6 +91,7 @@ public:
    \param jobID the id of the job to cancel, retrieved previously from AddJob()
    \sa AddJob()
    */
+  bool CancelJobIfQueued(unsigned int jobID); // LOCAL PATCH (megarushing): true if removed from the queue
   void CancelJob(unsigned int jobID);
 
   /*!

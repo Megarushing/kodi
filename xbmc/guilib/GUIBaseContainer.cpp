@@ -1770,3 +1770,10 @@ void CGUIBaseContainer::OnUnFocus()
 
   CGUIControl::OnUnFocus();
 }
+
+// LOCAL PATCH (megarushing): a row far off screen should not hold a fetch slot; it fetches again when it comes near.
+void CGUIBaseContainer::CancelPendingListUpdate()
+{
+  if (m_listProvider)
+    m_listProvider->CancelPendingUpdate();
+}
