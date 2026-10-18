@@ -68,7 +68,7 @@ tmux new -s kodiwebos 'tools/mega/build-webos.sh all 2>&1 | tee ~/kodi-mega-webo
 ```
 
 - Toolchain: openlgtv/buildroot-nc4 release `webos-b17b4cc` (GCC 12.2, glibc 2.12 sysroot, runs on webOS 6+). The 2026.08 release (GCC 16) is too new for this Omega code.
-- Packaging needs `ares-package` (`npm i -g @webos-tools/cli`). Output: `~/kodi-mega-webos/build/org.xbmc.kodimega_<ver>_arm.ipk` (~74 MB).
+- Packaging needs `ares-package` (`npm i -g @webos-tools/cli`). Output: `~/kodi-mega-webos/build/org.xbmc.kodimega_<ver>_arm.ipk` (~74 MB, stripped); the unstripped `kodi-webos` (debug info) is archived to `~/kodi-mega-webos/symbols/<commit>/` for crash reading (toolchain `arm-webos-linux-gnueabi-addr2line`).
 - First full build (2026-10-18): depends ~1 h, Kodi ~35 min.
 - Shared code must build on old glibc: no `gettid()` (use `syscall(SYS_gettid)`).
 - NOT active on webOS: the Android-only fixes (memory guard, MediaCodec/DV, AudioTrack, JNI, splash, stall watch).
