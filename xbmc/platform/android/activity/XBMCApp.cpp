@@ -255,6 +255,20 @@ void CXBMCApp::onStart()
 
   if (m_firstrun)
   {
+    // LOCAL PATCH (megarushing): run() gives up when no window appears within 30 s (e.g. Kodi
+    // started while the screen is off) and returns with m_firstrun still true. The next onStart then
+    // assigned a new std::thread to the old, unjoined one -> std::terminate in onStart (bedroom
+    // Shield, 8 crashes on 2026-10-16). Sinks, receivers and the media session were already set up
+    // by the first onStart, so only the run thread is restarted.
+    if (m_thread.joinable())
+    {
+      if (m_runActive)
+        return; // the previous run() is still waiting for the window and will pick it up
+      m_thread.join();
+      m_thread = std::thread(&CXBMCApp::run, this);
+      return;
+    }
+
     // Register sink
     AE::CAESinkFactory::ClearSinks();
     CAESinkAUDIOTRACK::Register();
@@ -663,6 +677,13 @@ void CXBMCApp::RequestVisibleBehind(bool requested)
 void CXBMCApp::run()
 {
   int status = 0;
+  // LOCAL PATCH (megarushing): see onStart.
+  m_runActive = true;
+  struct RunActiveReset
+  {
+    std::atomic<bool>& flag;
+    ~RunActiveReset() { flag = false; }
+  } runActiveReset{m_runActive};
 
   SetupEnv();
 

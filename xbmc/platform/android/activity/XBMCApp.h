@@ -253,6 +253,7 @@ private:
   int m_exitCode{0};
   bool m_bResumePlayback{false};
   std::thread m_thread;
+  std::atomic<bool> m_runActive{false}; //!< LOCAL PATCH (megarushing): run() thread is alive
   mutable CCriticalSection m_applicationsMutex;
   mutable std::vector<androidPackage> m_applications;
 
