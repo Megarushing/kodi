@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Kodi Mega: build the webOS .ipk for Master's LG TVs (32-bit ARM userspace) on MegaServer.
 # Steps follow docs/README.webOS.md. Re-runs are incremental; delete $WORK to start clean.
-# Usage: tools/mega/build-webos.sh [toolchain|depends|kodi|ipk|all]   (default: all)
+# Usage: tools/mega/build-webos.sh [toolchain|depends|kodi|ipk|symbols|all]   (default: all)
+# Every ipk also archives the UNSTRIPPED kodi-webos to $WORK/symbols/<commit>/ (the ipk itself is stripped).
 set -euo pipefail
 
 HOST=arm-webos-linux-gnueabi                                 # 32-bit ARM target
@@ -41,6 +42,12 @@ ipk() {
   command -v ares-package >/dev/null || { echo "ares-package missing: npm i -g @webos-tools/cli"; exit 1; }
   make -C "$WORK/build" ipk
   ls -l "$WORK/build"/*.ipk
+  symbols
+}
+
+symbols() {
+  local dir="$WORK/symbols/$(git -C "$SRC" rev-parse --short=10 HEAD)"
+  mkdir -p "$dir" && cp -p "$WORK/build/kodi-webos" "$dir/" && echo "symbols: $dir/kodi-webos"
 }
 
 case "$step" in
@@ -48,6 +55,7 @@ case "$step" in
   depends)   toolchain; depends ;;
   kodi)      kodi ;;
   ipk)       ipk ;;
+  symbols)   symbols ;;
   all)       toolchain; depends; kodi; ipk ;;
-  *)         echo "usage: $0 [toolchain|depends|kodi|ipk|all]"; exit 2 ;;
+  *)         echo "usage: $0 [toolchain|depends|kodi|ipk|symbols|all]"; exit 2 ;;
 esac
