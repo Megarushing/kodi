@@ -8,6 +8,8 @@
 
 #include "GUIControlGroupList.h"
 
+#include "GUIBaseContainer.h" // LOCAL PATCH (megarushing)
+
 #include "GUIAction.h"
 #include "GUIControlProfiler.h"
 #include "GUIFont.h" // for XBFONT_* definitions
@@ -106,6 +108,25 @@ void CGUIControlGroupList::Process(unsigned int currentTime, CDirtyRegionList &d
     // note we render all controls, even if they're offscreen, as then they'll be updated
     // with respect to animations
     CGUIControl *control = *it;
+    // LOCAL PATCH (megarushing): a child more than one viewport off screen is not processed, and
+    // the images its containers hold are released once. Before, every widget row of a long home
+    // screen (Arctic Fuse: 30+ rows) loaded its posters into RAM although only on-screen rows are
+    // drawn (and only drawn images move to the GPU and free their RAM copy): measured 2026-10-18 on
+    // the 2 GB bedroom Shield, 595 referenced never-drawn images = 274 MB, then a low-memory kill.
+    // Items stay loaded, so scrolling back rebuilds the posters from the disk cache, no refetch.
+    if (control->IsVisible() && !control->HasFocus() && IsControlFarOffScreen(pos, control))
+    {
+      if (m_farOffReleased.insert(control).second)
+      {
+        if (control->IsGroup())
+          static_cast<CGUIControlGroup*>(control)->FreeContainerItemImages();
+        else if (control->IsContainer())
+          static_cast<CGUIBaseContainer*>(control)->FreeItemImages();
+      }
+      pos += Size(control) + m_itemGap;
+      continue;
+    }
+    m_farOffReleased.erase(control);
     if (m_orientation == VERTICAL)
       CServiceBroker::GetWinSystem()->GetGfxContext().SetOrigin(m_posX, m_posY + pos - m_scroller.GetValue());
     else
@@ -140,6 +161,12 @@ void CGUIControlGroupList::Render()
     // note we render all controls, even if they're offscreen, as then they'll be updated
     // with respect to animations
     CGUIControl *control = *it;
+    // LOCAL PATCH (megarushing): far-off-screen children are not processed (see Process), so not drawn either.
+    if (control->IsVisible() && !control->HasFocus() && m_farOffReleased.count(control))
+    {
+      pos += Size(control) + m_itemGap;
+      continue;
+    }
     if (m_renderFocusedLast && control->HasFocus())
     {
       focusedControl = control;
@@ -562,6 +589,15 @@ int CGUIControlGroupList::GetSelectedItem() const
     }
   }
   return -1;
+}
+
+// LOCAL PATCH (megarushing): see header.
+bool CGUIControlGroupList::IsControlFarOffScreen(float pos, const CGUIControl* control) const
+{
+  const float viewport = Size(); // same measure as IsControlOnScreen
+  const float start = m_scroller.GetValue() - viewport;
+  const float end = m_scroller.GetValue() + 2 * viewport;
+  return pos + Size(control) < start || pos > end;
 }
 
 bool CGUIControlGroupList::IsControlOnScreen(float pos, const CGUIControl *control) const

@@ -436,10 +436,15 @@ void CDirectoryProvider::StartDirectoryJob()
   m_nextJobTimer.Stop();
 
   CLog::Log(LOGDEBUG, "CDirectoryProvider[{}]: refreshing...", m_currentUrl);
+  // LOCAL PATCH (megarushing): Kodi starts LOW jobs only while fewer than 3 jobs of any kind run,
+  // so local lists (addons://, library) waited behind poster decodes and slow plugin fetches.
+  // Plugin fetches stay LOW; everything else is NORMAL.
+  const CJob::PRIORITY priority =
+      StringUtils::StartsWith(m_currentUrl, "plugin://") ? CJob::PRIORITY_LOW : CJob::PRIORITY_NORMAL;
   m_jobID = CServiceBroker::GetJobManager()->AddJob(
       new CDirectoryJob(m_currentUrl, m_target.GetLabel(GetParentId(), false), m_currentSort,
                         m_currentLimit, m_currentBrowse, GetParentId()),
-      this);
+      this, priority);
 }
 
 bool CDirectoryProvider::Update(bool forceRefresh)
@@ -531,6 +536,22 @@ void CDirectoryProvider::Reset()
   {
     std::unique_lock subscriptionLock(m_subscriptionSection);
     m_subscriber.reset();
+  }
+}
+
+// LOCAL PATCH (megarushing): see IListProvider. Leaving an Arctic Fuse hub tab left its widget
+// fetches (TMDb Helper Python, 1-2 s each) running for minutes: measured 2026-10-18, the Add-ons
+// hub's addons:// rows waited behind them, so its icons appeared very late.
+void CDirectoryProvider::CancelPendingUpdate()
+{
+  std::unique_lock lock(m_section);
+  m_jobPending = false;
+  m_nextJobTimer.Stop();
+  if (m_jobID)
+  {
+    CServiceBroker::GetJobManager()->CancelJob(m_jobID);
+    m_jobID = 0;
+    m_updateState = UpdateState::INVALIDATED;
   }
 }
 

@@ -8,6 +8,8 @@
 
 #include "GUIControlGroup.h"
 
+#include "GUIBaseContainer.h" // LOCAL PATCH (megarushing)
+
 #include "GUIMessage.h"
 #include "ServiceBroker.h"
 #include "input/mouse/MouseEvent.h"
@@ -571,3 +573,15 @@ void CGUIControlGroup::DumpTextureUse()
     control->DumpTextureUse();
 }
 #endif
+
+// LOCAL PATCH (megarushing): see header.
+void CGUIControlGroup::FreeContainerItemImages()
+{
+  for (CGUIControl* child : m_children)
+  {
+    if (child->IsContainer())
+      static_cast<CGUIBaseContainer*>(child)->FreeItemImages();
+    else if (child->IsGroup())
+      static_cast<CGUIControlGroup*>(child)->FreeContainerItemImages();
+  }
+}

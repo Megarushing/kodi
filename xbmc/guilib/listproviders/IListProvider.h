@@ -72,6 +72,9 @@ public:
    \param immediately true to free resources immediately, free resources async later otherwise.
    */
   virtual void FreeResources(bool immediately) {}
+  /*! LOCAL PATCH (megarushing): drop a fetch that has not finished yet (the window was left),
+   so it does not keep a job worker busy; the next Update() fetches again. */
+  virtual void CancelPendingUpdate() {}
 
   /*! \brief Click event on an item.
    \param item the item that was clicked.

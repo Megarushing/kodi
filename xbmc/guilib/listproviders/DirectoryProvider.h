@@ -74,6 +74,7 @@ public:
   bool OnContextMenu(const std::shared_ptr<CGUIListItem>& item) override;
   bool IsUpdating() const override;
   void FreeResources(bool immediately) override;
+  void CancelPendingUpdate() override; // LOCAL PATCH (megarushing)
 
   // callback from directory job
   void OnJobComplete(unsigned int jobID, bool success, CJob* job) override;

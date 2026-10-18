@@ -1040,8 +1040,17 @@ void CGUIBaseContainer::FreeResources(bool immediately)
       Reset();
       m_listProvider->Reset();
     }
+    else
+      m_listProvider->CancelPendingUpdate(); // LOCAL PATCH (megarushing)
   }
   m_scroller.Stop();
+}
+
+// LOCAL PATCH (megarushing): see header.
+void CGUIBaseContainer::FreeItemImages()
+{
+  for (const auto& item : m_items)
+    item->FreeMemory(true);
 }
 
 void CGUIBaseContainer::UpdateLayout(bool updateAllItems)

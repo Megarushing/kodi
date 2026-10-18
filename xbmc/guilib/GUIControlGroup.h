@@ -72,6 +72,9 @@ public:
   void SaveStates(std::vector<CControlState> &states) override;
 
   bool IsGroup() const override { return true; }
+  //! LOCAL PATCH (megarushing): release the images held by containers anywhere below this group,
+  //! keeping their items (see CGUIControlGroupList::Process).
+  void FreeContainerItemImages();
 
 #ifdef _DEBUG
   void DumpTextureUse() override;
