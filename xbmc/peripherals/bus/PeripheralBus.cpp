@@ -19,7 +19,9 @@
 #include "utils/Variant.h"
 #include "utils/log.h"
 
+#include <chrono>
 #include <mutex>
+#include <unistd.h>
 
 using namespace PERIPHERALS;
 using namespace std::chrono_literals;
@@ -134,12 +136,23 @@ bool CPeripheralBus::ScanForDevices(void)
   bool bReturn(false);
 
   PeripheralScanResults results;
+  // LOCAL PATCH (megarushing): log slow device scans (a joystick registration froze video playback)
+  const auto diagT0 = std::chrono::steady_clock::now();
+  auto diagMs = [&diagT0]() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - diagT0).count();
+  };
   if (PerformDeviceScan(results))
   {
+    const auto diagScan = diagMs();
     UnregisterRemovedDevices(results);
+    const auto diagUnreg = diagMs();
     RegisterNewDevices(results);
+    const auto diagReg = diagMs();
 
     m_manager.NotifyObservers(ObservableMessagePeripheralsChanged);
+    if (diagMs() > 50)
+      CLog::Log(LOGINFO, "PeripheralTiming: ScanForDevices tid {} scan {} unregister {} register {} notify {} ms",
+                static_cast<int>(gettid()), diagScan, diagUnreg - diagScan, diagReg - diagUnreg, diagMs() - diagReg);
 
     bReturn = true;
   }
