@@ -16,9 +16,11 @@
 #include "threads/Thread.h"
 
 #include <deque>
+#include <memory>
 #include <set>
 
 #include <androidjni/AudioTrack.h>
+#include <androidjni/ByteBuffer.h>
 
 class CAESinkAUDIOTRACK : public IAESink
 {
@@ -99,6 +101,10 @@ private:
   bool m_superviseAudioDelay = false;
 
   std::vector<float> m_floatbuf;
+  //! LOCAL PATCH (megarushing): native buffer behind a persistent direct java.nio.ByteBuffer for
+  //! float PCM, so a write allocates nothing on the Java or native heap (see AudioTrackWrite).
+  std::vector<char> m_directbuf;
+  std::unique_ptr<CJNIByteBuffer> m_directByteBuffer;
   std::vector<int16_t> m_shortbuf;
   std::vector<char> m_charbuf;
 };
