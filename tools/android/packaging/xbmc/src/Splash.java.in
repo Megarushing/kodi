@@ -78,6 +78,21 @@ public class Splash extends Activity
   private String sXbmcdata = "";
   private File fPackagePath = null;
   private File fXbmcHome = null;
+
+  // LOCAL PATCH (megarushing): the unpack used to be judged complete by the folder's mtime, which the
+  // first mkdirs() of an unpack already bumps past the APK's. An unpack cut short (Kodi killed, another
+  // launch) then counted as done forever and Kodi crashed at every start ("Unable to load settings
+  // definitions", bedroom Shield 2026-10-18). A marker written only after the last file decides now.
+  private File unpackMarker()
+  {
+    return new File(fXbmcHome, ".unpack-complete");
+  }
+
+  private boolean isUnpackComplete()
+  {
+    File marker = unpackMarker();
+    return fXbmcHome.exists() && marker.exists() && marker.lastModified() >= fPackagePath.lastModified();
+  }
   private String sXbmcTemp = "";
 
   private BroadcastReceiver mExternalStorageReceiver = null;
@@ -205,7 +220,7 @@ public class Splash extends Activity
             {
               sendEmptyMessage(InError);
             }
-            if (fXbmcHome.exists() && fXbmcHome.lastModified() >= fPackagePath.lastModified())
+            if (isUnpackComplete())
             {
               mState = CachingDone;
               mCachingDone = true;
@@ -297,6 +312,8 @@ public class Splash extends Activity
 
         String cXbmcHome = fXbmcHome.getCanonicalPath();
         Log.d(TAG, "output: " + cXbmcHome);
+        fXbmcHome.mkdirs();
+        unpackMarker().delete(); // LOCAL PATCH (megarushing): not complete until the end
 
         while (entries.hasMoreElements())
         {
@@ -345,6 +362,10 @@ public class Splash extends Activity
         zip.close();
 
         fXbmcHome.setLastModified(fPackagePath.lastModified());
+        // LOCAL PATCH (megarushing): mark the unpack complete, stamped with the APK's time.
+        File marker = unpackMarker();
+        new FileOutputStream(marker).close();
+        marker.setLastModified(fPackagePath.lastModified());
 
       }
       catch (FileNotFoundException e1)
@@ -668,7 +689,7 @@ public class Splash extends Activity
 
         SetupEnvironment();
 
-        if (mState != InError && fXbmcHome.exists() && fXbmcHome.lastModified() >= fPackagePath.lastModified())
+        if (mState != InError && isUnpackComplete())
         {
           mState = CachingDone;
           mCachingDone = true;
