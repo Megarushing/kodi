@@ -831,7 +831,9 @@ int CXBMCApp::android_printf(const char* format, ...)
     int len = vsnprintf(0, 0, format, args_copy);
     message.resize(len);
     result = vsnprintf(&message[0], len + 1, format, args);
-    CLog::Log(LOGDEBUG, message);
+    // LOCAL PATCH (megarushing): message is already formatted text (intents, actions, URIs); used as a
+    // fmt format string, any '{' or '}' in it throws fmt::format_error -> std::terminate.
+    CLog::Log(LOGDEBUG, "{}", message);
   }
   else
   {

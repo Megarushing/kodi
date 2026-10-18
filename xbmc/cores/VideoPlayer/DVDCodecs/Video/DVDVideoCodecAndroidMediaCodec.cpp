@@ -1389,7 +1389,9 @@ void CDVDVideoCodecAndroidMediaCodec::SignalEndOfStream()
       {
         xbmc_jnienv()->ExceptionDescribe();
         xbmc_jnienv()->ExceptionClear();
-        CLog::Log(LOGERROR, "CDVDVideoCodecAndroidMediaCodec::{}: queueInputBuffer failed");
+        // LOCAL PATCH (megarushing): "{}" had no argument -> fmt::format_error -> std::terminate when the
+        // decoder service died mid-play (bedroom Shield 2026-10-18 02:27). Upstream master uses LogF too.
+        CLog::LogF(LOGERROR, "queueInputBuffer failed");
       }
       else
       {
