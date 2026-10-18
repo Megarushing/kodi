@@ -24,9 +24,12 @@ void* AlignedMalloc(size_t s, size_t alignTo)
   {
     throw std::runtime_error("Failed to align memory, alignment is not a multiple of 2");
   }
-  else if (res == ENOMEM)
+  else if (res != 0)
   {
-    throw std::runtime_error("Failed to align memory, insufficient memory available");
+    // LOCAL PATCH (megarushing): xbmc/xbmc#29091 - same as the Android fix: out of memory
+    // returns nullptr (callers such as CTexture skip the image) instead of throwing an
+    // exception nobody catches, which aborted Kodi. Needed for the webOS (LG TV) build.
+    return nullptr;
   }
   return p;
 }
