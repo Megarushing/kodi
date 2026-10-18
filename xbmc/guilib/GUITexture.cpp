@@ -332,20 +332,18 @@ bool CGUITexture::AllocResources()
     }
     if (m_isAllocated != NORMAL)
     { // use our large image background loader
-      // LOCAL PATCH (megarushing): ask for a decode sized to this control (longest side x1.25,
-      // rounded up to 256/384/512/768/1024 px; bigger controls get the screen size as before).
+      // LOCAL PATCH (megarushing): ask for a decode sized to this control (longest side x1.5,
+      // rounded up to 256/512/1024 px; bigger controls get the screen size as before).
       if (!IsAllocated())
       {
-        const float side = std::max(m_width, m_height) * 1.25f;
+        const float side = std::max(m_width, m_height) * 1.5f;
         unsigned int bucket = 0;
-        for (const unsigned int b : {256u, 384u, 512u, 768u, 1024u})
-        {
-          if (side > 0 && side <= b)
-          {
-            bucket = b;
-            break;
-          }
-        }
+        if (side > 0 && side <= 256)
+          bucket = 256;
+        else if (side > 0 && side <= 512)
+          bucket = 512;
+        else if (side > 0 && side <= 1024)
+          bucket = 1024;
         m_largeKey = bucket ? m_info.filename + LARGE_TEXTURE_SIZE_SEP + std::to_string(bucket)
                             : m_info.filename;
       }
