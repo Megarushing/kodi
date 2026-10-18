@@ -15,6 +15,8 @@
 
 #include "GUIControlGroup.h"
 
+#include <set>
+
 struct SGUIControlAndOffset
 {
   CGUIControl* control{nullptr};
@@ -64,6 +66,9 @@ public:
 protected:
   EVENT_RESULT OnMouseEvent(const CPoint& point, const KODI::MOUSE::CMouseEvent& event) override;
   bool IsControlOnScreen(float pos, const CGUIControl* control) const;
+  //! LOCAL PATCH (megarushing): true when the child is more than one viewport away from the view.
+  bool IsControlFarOffScreen(float pos, const CGUIControl* control) const;
+  std::set<const CGUIControl*> m_farOffReleased; //!< far-off children whose images were released
   void ValidateOffset();
   void CalculateItemGap();
   inline float Size(const CGUIControl *control) const;
