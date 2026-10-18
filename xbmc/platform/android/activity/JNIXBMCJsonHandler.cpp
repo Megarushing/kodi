@@ -8,6 +8,8 @@
 
 #include "JNIXBMCJsonHandler.h"
 
+#include "ServiceBroker.h" // LOCAL PATCH (megarushing)
+
 #include "CompileInfo.h"
 #include "interfaces/json-rpc/JSONRPC.h"
 #include "interfaces/json-rpc/JSONServiceDescription.h"
@@ -36,6 +38,13 @@ void CJNIXBMCJsonHandler::RegisterNatives(JNIEnv *env)
 
 jstring CJNIXBMCJsonHandler::_requestJSON(JNIEnv *env, jobject thiz, jstring request)
 {
+  // LOCAL PATCH (megarushing): Android calls this from Java (XBMCJsonRPC, e.g. the TV-channel sync
+  // job) even when Kodi's native side is not running; JSONRPC then logs through a null logger:
+  // SIGSEGV in CLog::CanLogComponent <- MethodCall <- _requestJSON (bedroom Shield 2026-10-15 x2).
+  if (!CServiceBroker::IsLoggingUp())
+    return env->NewStringUTF(
+        R"({"jsonrpc":"2.0","id":null,"error":{"code":-32099,"message":"Kodi is not running"}})");
+
   CJNIClient client;
   CJNITransportLayer transportLayer;
 
