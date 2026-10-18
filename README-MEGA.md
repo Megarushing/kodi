@@ -23,8 +23,18 @@ It installs next to the Play Store Kodi and does not replace it.
 | `XBMCApp.cpp` (`MemoryGuardProcess`) + `GUILargeTextureManager` stats | **Memory guard**: every 2 s reads MemAvailable, SwapFree, VmSize; under pressure frees unused images/textures at once and purges the heap (`mallopt(M_PURGE)`); logs `MemoryGuard:` lines with undrawn-image bytes. During video: at most every 30 s, no purge. | Android's low-memory killer killed Kodi with no warning; Kodi ignored memory pressure (`onLowMemory` was a no-op). |
 | `xbmc/guilib/GUIControlGroupList.cpp`, `GUIControlGroup`, `GUIBaseContainer` | Rows more than one viewport off screen are not processed or drawn, and their item images are released once (items stay, no refetch) | Kodi processed every row of a long home screen, decoding posters it never drew: 595 undrawn images = 274 MB, then a low-memory kill. After: ~20 MB. |
 | `xbmc/guilib/listproviders/DirectoryProvider.cpp`, `IListProvider.h`, `GUIBaseContainer.cpp` | Leaving a window cancels its unfinished widget fetches; non-plugin lists (addons://, library) fetch at NORMAL priority | Fetches of tabs already left kept running; local lists waited behind them (LOW jobs only start while < 3 jobs run). Add-ons hub icons: Play Store Kodi still empty at 40 s, Kodi Mega full at 2 s. |
+| `tools/android/packaging/xbmc/src/Splash.java.in` | Unpack completeness = marker file written after the last file | A start-up unpack cut short counted as done (folder mtime) -> "Unable to load settings definitions" + SIGSEGV at every start. |
+| `DVDVideoCodecAndroidMediaCodec.cpp` (`SignalEndOfStream`), `XBMCApp.cpp` (`android_printf`) | Log format fixes | `"{}"` without argument / formatted text used as format -> `fmt::format_error` -> terminate when the decoder service dies. Upstream master has the codec fix. |
+| `AESinkAUDIOTRACK.cpp/.h` | Float PCM written through one persistent direct `ByteBuffer` | `write(float[])` allocated a Java array + native copy per 32 ms period; that allocation failing aborted Kodi (2 crashes). |
+| `xbmc/threads/Thread.cpp` | `CThread::Create` retries 2x, then logs instead of terminating | `std::system_error` from `pthread_create` (no memory for a stack) aborted Kodi. |
+| `XBMCApp.cpp` (emergency reserve) | 24 MB address-space reserve + `std::set_new_handler`: a failing `operator new` gets the reserve once; re-armed when memory is fine | Uncaught `std::bad_alloc` aborts. |
+| `GUIWindowManager.cpp` (`UnloadHiddenKeptWindows`) + memory guard | During video under critical memory, unload hidden kept-in-memory windows once (properties stay) | Frees menu memory during 4K playback; measured: Kodi RSS 419 -> 392 MB, did NOT remove Remux hitches. |
 | `tools/android/packaging/xbmc/AndroidManifest.xml.in` | `<profileable android:shell="true"/>` | Lets perfetto heapprofd profile native memory from adb (no runtime change, unlike debuggable). |
 | `tools/mega/build-android.sh` | Build script | Reproducible build (below). |
+
+## Tags
+
+- `mega-v1-imagefix` = the first Kodi Mega (#29091 image fix + build tooling), before the 2026-10-18 crash-fixing night.
 
 ## Build (MegaServer)
 
