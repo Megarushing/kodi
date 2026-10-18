@@ -76,31 +76,32 @@ bool CGUIDialogBusy::WaitOnEvent(CEvent &event, unsigned int displaytime /* = 10
   bool cancelled = false;
   if (!event.Wait(std::chrono::milliseconds(displaytime)))
   {
-    // throw up the progress
-    CGUIDialogBusy* dialog = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIDialogBusy>(WINDOW_DIALOG_BUSY);
+    CGUIDialogBusy* dialog = static_cast<CGUIDialogBusy*>(
+        CServiceBroker::GetGUI()->GetWindowManager().GetWindow(WINDOW_DIALOG_BUSY));
     if (dialog)
     {
-      // LOCAL PATCH (megarushing): a nested wait (a plugin resolving inside another plugin's
-      // resolve) used to throw std::logic_error here, uncaught -> Kodi abort (bedroom Shield
-      // 2026-10-16 19:08). Reuse the busy dialog that is already showing; the outer wait closes it.
-      const bool nested = dialog->IsDialogRunning();
-      if (nested)
-        CLog::Log(LOGWARNING, "CGUIDialogBusy: nested wait, reusing the open busy dialog");
-      else
+      const uint32_t level = ++dialog->m_waiters;
+      if (level == 1)
+      {
         dialog->Open();
+      }
 
       while (!event.Wait(1ms))
       {
-        dialog->ProcessRenderLoop(false);
-        if (allowCancel && dialog->IsCanceled())
+        if (level == dialog->m_waiters)
+          dialog->ProcessRenderLoop(false);
+        if (allowCancel && dialog->m_cancelled)
         {
           cancelled = true;
           break;
         }
       }
 
-      if (!nested)
-        dialog->Close(true);
+      if (--dialog->m_waiters == 0)
+      {
+        dialog->Close(true); // Force close.
+        dialog->ProcessRenderLoop(false); // Force repaint.
+      }
     }
   }
   return !cancelled;
@@ -110,19 +111,18 @@ CGUIDialogBusy::CGUIDialogBusy(void)
   : CGUIDialog(WINDOW_DIALOG_BUSY, "DialogBusy.xml", DialogModalityType::MODAL)
 {
   m_loadType = LOAD_ON_GUI_INIT;
-  m_bCanceled = false;
+  m_cancelled = false;
 }
 
 CGUIDialogBusy::~CGUIDialogBusy(void) = default;
 
 void CGUIDialogBusy::Open_Internal(bool bProcessRenderLoop, const std::string& param /* = "" */)
 {
-  m_bCanceled = false;
   m_bLastVisible = true;
+  m_cancelled = false;
 
   CGUIDialog::Open_Internal(false, param);
 }
-
 
 void CGUIDialogBusy::DoProcess(unsigned int currentTime, CDirtyRegionList &dirtyregions)
 {
@@ -143,6 +143,6 @@ void CGUIDialogBusy::Render()
 
 bool CGUIDialogBusy::OnBack(int actionID)
 {
-  m_bCanceled = true;
+  m_cancelled = true;
   return true;
 }

@@ -198,6 +198,7 @@ public:
   // pMessageIDList: point to first integer of a 0 ends integer array.
   int RemoveThreadMessageByMessageIds(int *pMessageIDList);
   void AddMsgTarget( IMsgTargetCallback* pMsgTarget );
+  void RemoveMsgTarget(IMsgTargetCallback* pMsgTarget);
   int GetActiveWindow() const;
   /*! LOCAL PATCH (megarushing): unload kept-in-memory windows that are not active or visible (their
    controls, list items and textures; window properties stay). They reload from the skin when opened.

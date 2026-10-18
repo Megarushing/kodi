@@ -3,7 +3,7 @@
 Megarushing's personal Kodi fork, for the bedroom NVIDIA Shield (Android 11, 32-bit userspace).
 It installs next to the Play Store Kodi and does not replace it.
 
-- Base: upstream tag `21.2-Omega`. Branch: `mega`. Upstream updates: `git fetch upstream tag <tag>` + `git merge`.
+- Base: upstream tag `21.3-Omega` (merged 2026-10-18; was 21.2-Omega). Branch: `mega`. Upstream updates: `git fetch upstream tag <tag>` + `git merge`.
 - Package: `org.xbmc.kodimega`, launcher label "Kodi Mega". `APP_NAME` stays `Kodi`, so the data folder is still `.kodi`
   (`/sdcard/Android/data/org.xbmc.kodimega/files/.kodi`).
 - Not an upstream PR. Every local change is listed below and has a `LOCAL PATCH (megarushing)` comment.
@@ -19,7 +19,6 @@ It installs next to the Play Store Kodi and does not replace it.
 | `xbmc/platform/android/activity/XBMCApp.cpp` (`onNewIntent`) | Ignore intents while Kodi is not initialized | Null logger SIGSEGV (fault addr 0x14), 2 crashes. |
 | `xbmc/platform/android/activity/JNIXBMCJsonHandler.cpp` | `_requestJSON` answers "not running" when the logger is down | Java `XBMCJsonRPC` (TV-channel sync job) called JSON-RPC with Kodi stopped: SIGSEGV in `CLog::CanLogComponent`, 2 crashes. |
 | `XBMCApp.cpp` (`onStart`, `run`) | Restart a finished run thread instead of assigning over it | `run()` gives up after 30 s without a window and leaves an unjoined thread; next `onStart` -> `std::terminate`, 4+ crashes. |
-| `xbmc/dialogs/GUIDialogBusy.cpp` | Nested busy wait reuses the open dialog | Upstream throws `std::logic_error` ("known issue, the application will exit"), 1 crash during nested plugin resolve. |
 | `XBMCApp.cpp` (`MemoryGuardProcess`) + `GUILargeTextureManager` stats | **Memory guard**: every 2 s reads MemAvailable, SwapFree, VmSize; under pressure frees unused images/textures at once and purges the heap (`mallopt(M_PURGE)`); logs `MemoryGuard:` lines with undrawn-image bytes. During video: at most every 30 s, no purge. | Android's low-memory killer killed Kodi with no warning; Kodi ignored memory pressure (`onLowMemory` was a no-op). |
 | `xbmc/guilib/GUIControlGroupList.cpp`, `GUIControlGroup`, `GUIBaseContainer` | Rows more than one viewport off screen are not processed or drawn, and their item images are released once (items stay, no refetch) | Kodi processed every row of a long home screen, decoding posters it never drew: 595 undrawn images = 274 MB, then a low-memory kill. After: ~20 MB. |
 | `xbmc/guilib/listproviders/DirectoryProvider.cpp`, `IListProvider.h`, `GUIBaseContainer.cpp` | Leaving a window cancels its unfinished widget fetches; non-plugin lists (addons://, library) fetch at NORMAL priority | Fetches of tabs already left kept running; local lists waited behind them (LOW jobs only start while < 3 jobs run). Add-ons hub icons: Play Store Kodi still empty at 40 s, Kodi Mega full at 2 s. |

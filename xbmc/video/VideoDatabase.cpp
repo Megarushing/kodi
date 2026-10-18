@@ -2174,6 +2174,7 @@ bool CVideoDatabase::GetMovieInfo(const std::string& strFilenameAndPath,
                                   CVideoInfoTag& details,
                                   int idMovie /* = -1 */,
                                   int idVersion /* = -1 */,
+                                  int idFile /* = -1 */,
                                   int getDetails /* = VideoDbDetailsAll */)
 {
   try
@@ -2188,7 +2189,12 @@ bool CVideoDatabase::GetMovieInfo(const std::string& strFilenameAndPath,
       return false;
 
     std::string sql;
-    if (idVersion >= 0)
+    if (idFile >= 0)
+    {
+      sql = PrepareSQL("SELECT * FROM movie_view WHERE idMovie = %i AND videoVersionIdFile = %i",
+                       idMovie, idFile);
+    }
+    else if (idVersion >= 0)
     {
       //! @todo get rid of "videos with versions as folder" hack!
       if (idVersion != VIDEO_VERSION_ID_ALL)
@@ -2197,7 +2203,7 @@ bool CVideoDatabase::GetMovieInfo(const std::string& strFilenameAndPath,
     }
     else if (!strFilenameAndPath.empty())
     {
-      const int idFile{GetFileId(strFilenameAndPath)};
+      idFile = GetFileId(strFilenameAndPath);
       if (idFile != -1)
         sql = PrepareSQL("SELECT * FROM movie_view WHERE idMovie = %i AND videoVersionIdFile = %i",
                          idMovie, idFile);
@@ -2215,7 +2221,7 @@ bool CVideoDatabase::GetMovieInfo(const std::string& strFilenameAndPath,
   }
   catch (...)
   {
-    CLog::Log(LOGERROR, "{} ({}) failed", __FUNCTION__, strFilenameAndPath);
+    CLog::LogF(LOGERROR, "{} {} {} failed", strFilenameAndPath, idMovie, idFile);
   }
   return false;
 }
@@ -4023,7 +4029,7 @@ void CVideoDatabase::GetSameVideoItems(const CFileItem& item, CFileItemList& ite
                             "FROM uniqueid "
                             "WHERE (media_type, value, type) IN "
                             "  (SELECT media_type, value, type "
-                            "  FROM uniqueid WHERE media_id = %i AND media_type = '%s') ",
+                            "  FROM uniqueid WHERE media_id = %i AND media_type = '%s' AND value != '') ",
                             dbId, mediaType.c_str()));
 
     while (!m_pDS->eof())
