@@ -18,6 +18,7 @@
 
 #include <chrono>
 #include <mutex>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 using namespace PERIPHERALS;
@@ -143,7 +144,7 @@ bool CPeripheralBus::ScanForDevices(void)
     m_manager.NotifyObservers(ObservableMessagePeripheralsChanged);
     if (diagMs() > 50)
       CLog::Log(LOGINFO, "PeripheralTiming: ScanForDevices tid {} scan {} unregister {} register {} notify {} ms",
-                static_cast<int>(gettid()), diagScan, diagUnreg - diagScan, diagReg - diagUnreg, diagMs() - diagReg);
+                static_cast<int>(syscall(SYS_gettid)), diagScan, diagUnreg - diagScan, diagReg - diagUnreg, diagMs() - diagReg);
 
     bReturn = true;
   }
