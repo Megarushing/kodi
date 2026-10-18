@@ -151,6 +151,8 @@ public:
 
   bool SetBuffersGeometry(int width, int height, int format);
   static int android_printf(const char *format, ...);
+  //! LOCAL PATCH (megarushing): free menu memory before a video starts when RAM is low (app thread only).
+  static void PrepareMemoryForPlayback();
 
   int GetBatteryLevel() const;
   void KeepScreenOn(bool on);

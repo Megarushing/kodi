@@ -2386,6 +2386,13 @@ bool CApplication::PlayFile(CFileItem item, const std::string& player, bool bRes
       CUtil::ClearSubtitles();
   }
 
+#ifdef TARGET_ANDROID
+  // LOCAL PATCH (megarushing): make room before the video decoder allocates (4K start-up burst +
+  // a Home full of posters -> low-memory kill within seconds, bedroom Shield 2026-10-18 04:36/05:15).
+  if (!item.IsAudio() && !item.IsPicture())
+    CXBMCApp::PrepareMemoryForPlayback();
+#endif
+
   if (item.IsDiscStub())
   {
     return CServiceBroker::GetMediaManager().playStubFile(item);
