@@ -80,14 +80,14 @@ bool CGUIDialogBusy::WaitOnEvent(CEvent &event, unsigned int displaytime /* = 10
     CGUIDialogBusy* dialog = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIDialogBusy>(WINDOW_DIALOG_BUSY);
     if (dialog)
     {
-      if (dialog->IsDialogRunning())
-      {
-        CLog::Log(LOGFATAL, "Logic error due to two concurrent busydialogs, this is a known issue. "
-                            "The application will exit.");
-        throw std::logic_error("busy dialog already running");
-      }
-
-      dialog->Open();
+      // LOCAL PATCH (megarushing): a nested wait (a plugin resolving inside another plugin's
+      // resolve) used to throw std::logic_error here, uncaught -> Kodi abort (bedroom Shield
+      // 2026-10-16 19:08). Reuse the busy dialog that is already showing; the outer wait closes it.
+      const bool nested = dialog->IsDialogRunning();
+      if (nested)
+        CLog::Log(LOGWARNING, "CGUIDialogBusy: nested wait, reusing the open busy dialog");
+      else
+        dialog->Open();
 
       while (!event.Wait(1ms))
       {
@@ -99,7 +99,8 @@ bool CGUIDialogBusy::WaitOnEvent(CEvent &event, unsigned int displaytime /* = 10
         }
       }
 
-      dialog->Close(true);
+      if (!nested)
+        dialog->Close(true);
     }
   }
   return !cancelled;
