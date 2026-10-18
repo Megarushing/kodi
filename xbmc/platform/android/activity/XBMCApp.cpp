@@ -1321,7 +1321,9 @@ void Watch()
   struct sigaction sa = {};
   sa.sa_sigaction = Handler;
   sa.sa_flags = SA_SIGINFO | SA_RESTART;
-  sigaction(sig, &sa, nullptr);
+  const int rc = sigaction(sig, &sa, nullptr);
+  CLog::Log(LOGINFO, "StallWatch: armed (signal {}, sigaction {}, {} code ranges, stack {:#x}-{:#x})",
+            sig, rc, g_rangeCount, g_stackLo, g_stackHi);
   int64_t stallStart = 0, lastReport = 0;
   while (true)
   {

@@ -533,6 +533,23 @@ bool CDVDVideoCodecAndroidMediaCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptio
           isDvhe = true;
       }
 
+      // LOCAL PATCH (megarushing): a Dolby Vision profile 8 stream whose base layer is labelled SDR
+      // (transfer bt709, not PQ/HLG) contradicts its own DV record (8.1 = HDR10 base). Feeding it to
+      // NVIDIA's DOVI decoder crashed the Shield's graphics composer within seconds of every start
+      // (Android soft reboot; "Unknown: Killer Robots" YTS 4K, bedroom Shield 2026-10-18 01:59/02:12/
+      // 06:10). Drop the DV layer and decode the base layer as plain HEVC instead.
+      if (!removeDovi && (isDvhe || isDvh1) && m_hints.dovi.dv_profile == 8 &&
+          m_hints.colorTransferCharacteristic != AVCOL_TRC_SMPTE2084 &&
+          m_hints.colorTransferCharacteristic != AVCOL_TRC_ARIB_STD_B67)
+      {
+        CLog::Log(LOGWARNING,
+                  "CDVDVideoCodecAndroidMediaCodec::Open Dolby Vision profile 8 with non-HDR base "
+                  "layer (transfer {}), decoding as plain HEVC",
+                  static_cast<int>(m_hints.colorTransferCharacteristic));
+        removeDovi = true;
+        isDvhe = isDvh1 = false;
+      }
+
       if (!removeDovi && (isDvhe || isDvh1))
       {
         bool displaySupportsDovi{false};
