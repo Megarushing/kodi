@@ -35,6 +35,7 @@
 #include "GUILargeTextureManager.h" // LOCAL PATCH (megarushing): memory guard
 #include "guilib/TextureManager.h" // LOCAL PATCH (megarushing): memory guard
 #include "guilib/GUIWindowManager.h" // LOCAL PATCH (megarushing): memory guard
+#include "guilib/WindowIDs.h" // LOCAL PATCH (megarushing): memory guard
 #include "guilib/GUIWindowManager.h"
 #include "guilib/guiinfo/GUIInfoLabels.h"
 #include "input/actions/Action.h"
@@ -1023,6 +1024,7 @@ constexpr int GUARD_RELIEF_EVERY_MS = 10000; // under plain pressure, at most on
 // While a video plays, free RAM sits low by nature (decoder buffers) and images are not the issue:
 // relieve at most every 30 s and skip the heap purge, which runs on this (render) thread.
 constexpr int GUARD_RELIEF_EVERY_MS_VIDEO = 30000;
+constexpr long GUARD_PREPLAY_UNLOAD_AVAIL_KB = 600 * 1024; // unload hidden menus for a video below this
 constexpr int GUARD_REPORT_EVERY_MS = 60000; // routine "MemoryGuard: ok" line
 constexpr int GUARD_M_PURGE = -101; // bionic mallopt M_PURGE (API 28+): return free heap pages to the OS
 
@@ -1104,7 +1106,7 @@ void MemoryGuardProcess(bool playingVideo)
   // LOCAL PATCH (megarushing): during a video under critical memory pressure (4K Dolby Vision on
   // the 2 GB Shield: decoder + composer take ~600 MB of graphics memory and zram thrashes, which
   // shows as stutter), unload the hidden menu windows once per playback; they reload afterwards.
-  if (!playingVideo)
+  if (!playingVideo && gui->GetWindowManager().GetActiveWindow() != WINDOW_FULLSCREEN_VIDEO)
     g_memoryGuard.unloadedThisPlayback = false;
   int level = 0;
   if ((avail >= 0 && avail < GUARD_PRESSURE_AVAIL_KB) ||
@@ -1114,7 +1116,12 @@ void MemoryGuardProcess(bool playingVideo)
   if ((avail >= 0 && avail < GUARD_CRITICAL_AVAIL_KB) || vmSize > GUARD_CRITICAL_VMSIZE_KB)
     level = 2;
 
-  if (playingVideo && level == 2 && !g_memoryGuard.unloadedThisPlayback)
+  // Unload as soon as fullscreen video is up and RAM is below the threshold: the 4K decoder's
+  // start-up burst came within seconds and the low-memory killer won (bedroom Shield 04:36:27).
+  const bool fullscreenVideo =
+      gui->GetWindowManager().GetActiveWindow() == WINDOW_FULLSCREEN_VIDEO;
+  if ((playingVideo || fullscreenVideo) && !g_memoryGuard.unloadedThisPlayback &&
+      ((avail >= 0 && avail < GUARD_PREPLAY_UNLOAD_AVAIL_KB) || level == 2))
   {
     g_memoryGuard.unloadedThisPlayback = true;
     const int unloaded = gui->GetWindowManager().UnloadHiddenKeptWindows();
