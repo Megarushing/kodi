@@ -23,20 +23,11 @@
 #include <chrono>
 #include <exception>
 #include <mutex>
-#include <cstdlib>
-#include <algorithm>
 
 CImageLoader::CImageLoader(const std::string& path, const bool useCache)
   : m_path(path), m_texture(nullptr)
 {
   m_use_cache = useCache;
-  // LOCAL PATCH (megarushing): split a sized key ("<path>\x1f<max px>").
-  const size_t sep = m_path.rfind(LARGE_TEXTURE_SIZE_SEP);
-  if (sep != std::string::npos)
-  {
-    m_maxSize = static_cast<unsigned int>(std::strtoul(m_path.c_str() + sep + 1, nullptr, 10));
-    m_path.resize(sep);
-  }
 }
 
 CImageLoader::~CImageLoader() = default;
@@ -59,16 +50,9 @@ bool CImageLoader::DoWork()
   {
     // direct route - load the image
     auto start = std::chrono::steady_clock::now();
-    // LOCAL PATCH (megarushing): decode no larger than the control draws it (m_maxSize), not the
-    // screen: a 300 px row poster held a 720 px decode in RAM and on the GPU.
-    unsigned int maxW = CServiceBroker::GetWinSystem()->GetGfxContext().GetWidth();
-    unsigned int maxH = CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight();
-    if (m_maxSize > 0)
-    {
-      maxW = std::min(maxW, m_maxSize);
-      maxH = std::min(maxH, m_maxSize);
-    }
-    m_texture = CTexture::LoadFromFile(loadPath, maxW, maxH);
+    m_texture =
+        CTexture::LoadFromFile(loadPath, CServiceBroker::GetWinSystem()->GetGfxContext().GetWidth(),
+                               CServiceBroker::GetWinSystem()->GetGfxContext().GetHeight());
 
     auto end = std::chrono::steady_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);

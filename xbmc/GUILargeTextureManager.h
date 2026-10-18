@@ -41,13 +41,7 @@ public:
   bool          m_use_cache; ///< Whether or not to use any caching with this image
   std::string    m_path; ///< path of image to load
   std::unique_ptr<CTexture> m_texture; ///< Texture object to load the image into \sa CTexture.
-  //! LOCAL PATCH (megarushing): longest side to decode to (0 = screen size), from a sized key.
-  unsigned int m_maxSize = 0;
 };
-
-//! LOCAL PATCH (megarushing): a large-texture request key may carry a decode size limit:
-//! "<path>" LARGE_TEXTURE_SIZE_SEP "<max longest side in px>". See CGUITexture::AllocResources.
-constexpr char LARGE_TEXTURE_SIZE_SEP = '\x1f';
 
 /*!
  \ingroup textures

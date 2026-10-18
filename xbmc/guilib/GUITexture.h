@@ -193,7 +193,6 @@ protected:
   bool m_allocateDynamically;
   enum ALLOCATE_TYPE { NO = 0, NORMAL, LARGE, NORMAL_FAILED, LARGE_FAILED };
   ALLOCATE_TYPE m_isAllocated;
-  std::string m_largeKey; //!< LOCAL PATCH (megarushing): sized large-texture key used at alloc
 
   CTextureInfo m_info;
   CAspectRatio m_aspect;
