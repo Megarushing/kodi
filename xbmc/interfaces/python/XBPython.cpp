@@ -104,12 +104,9 @@ XBPython::~XBPython()
 
   if (Py_IsInitialized())
   {
-#ifdef TARGET_WEBOS
-    // LOCAL PATCH (megarushing), xbmc/xbmc#29954: never finalize a runtime with
-    // blocked subinterpreters. Uninitialize() already retained its GIL.
+    // Uninitialize() kept the GIL for scripts or interpreters that are left
     if (m_skipFinalize)
       return;
-#endif
 
     // Switch to the main interpreter thread before finalizing
     PyThreadState_Swap(m_mainThreadState);
@@ -501,18 +498,20 @@ void XBPython::Uninitialize()
 
   // callbacks for the stopped scripts can still be queued
   XBMCAddon::RetardedAsyncCallbackHandler::clearAllPendingCalls();
-#ifdef TARGET_WEBOS
-  // LOCAL PATCH (megarushing), adapted from xbmc/xbmc#29954 for Omega/Python 3.11.
-  // Uninitialize can be called twice. On the main shutdown thread use the GIL
-  // state API rather than restoring a thread state owned by a script thread.
+
+  // a script that CScriptInvocationManager gave up on keeps its invoker, and a script that
+  // failed can leave its interpreter behind: then keep the GIL from now on, so no further
+  // Python code runs while Kodi exits, and don't finalize Python under them. Scripts not
+  // counted by now are refused in OnScriptInitialized().
   if (m_skipFinalize)
     return;
   int scriptsRunning;
   {
-    std::unique_lock<CCriticalSection> counterLock(m_critSection);
-    scriptsRunning = m_iDllScriptCounter;
+    std::unique_lock counterLock(m_critSection);
+    m_scriptsClosed = true;
+    scriptsRunning = static_cast<int>(m_scriptsStarted.size());
   }
-  const PyGILState_STATE gil = PyGILState_Ensure();
+  PyEval_RestoreThread(m_mainThreadState);
   bool interpreterLeft = false;
   for (PyInterpreterState* interp = PyInterpreterState_Head(); interp;
        interp = PyInterpreterState_Next(interp))
@@ -520,17 +519,14 @@ void XBPython::Uninitialize()
     if (interp != PyInterpreterState_Main())
       interpreterLeft = true;
   }
+  if (scriptsRunning > 0)
+    CLog::Log(LOGWARNING, "XBPython: {} script(s) still running, not finalizing Python",
+              scriptsRunning);
+  else if (interpreterLeft)
+    CLog::Log(LOGWARNING, "XBPython: a script interpreter was not ended, not finalizing Python");
   m_skipFinalize = scriptsRunning > 0 || interpreterLeft;
-  if (m_skipFinalize)
-  {
-    CLog::Log(LOGWARNING,
-              "XBPython: {} script(s) still running, orphan interpreter: {}; "
-              "retaining GIL and not finalizing Python at exit",
-              scriptsRunning, interpreterLeft);
-  }
-  else
-    PyGILState_Release(gil);
-#endif
+  if (!m_skipFinalize)
+    m_mainThreadState = PyEval_SaveThread();
 }
 
 void XBPython::Process()
@@ -562,7 +558,12 @@ bool XBPython::OnScriptInitialized(ILanguageInvoker* invoker)
   XBMC_TRACE;
   CLog::Log(LOGDEBUG, "initializing python script");
   std::unique_lock lock(m_critSection);
-  m_iDllScriptCounter++;
+  if (m_scriptsClosed)
+  {
+    CLog::Log(LOGWARNING, "XBPython: Python is shutting down, not starting the script");
+    return false;
+  }
+  m_scriptsStarted.insert(invoker);
 
   return true;
 }
@@ -621,11 +622,7 @@ void XBPython::OnScriptFinalized(ILanguageInvoker* invoker)
 {
   XBMC_TRACE;
   std::unique_lock lock(m_critSection);
-  // for linux - we never release the library. its loaded and stays in memory.
-  if (m_iDllScriptCounter)
-    m_iDllScriptCounter--;
-  else
-    CLog::Log(LOGERROR, "Python script counter attempted to become negative");
+  m_scriptsStarted.erase(invoker);
 }
 
 std::shared_ptr<ILanguageInvoker> XBPython::CreateInvoker()

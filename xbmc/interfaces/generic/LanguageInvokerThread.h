@@ -35,13 +35,15 @@ public:
   };
   virtual void Release();
 
-#ifdef TARGET_WEBOS
-  // LOCAL PATCH (megarushing): bounded shutdown join, adapted from xbmc/xbmc#29954.
+  /*!
+   * \brief Wait for the thread to end.
+   * \param timeout How long to wait at most.
+   * \return True if the thread is not running.
+   */
   bool WaitForExit(std::chrono::milliseconds timeout)
   {
     return CThread::Join(timeout) || !CThread::IsRunning();
   }
-#endif
 
 protected:
   bool execute(const std::string &script, const std::vector<std::string> &arguments) override;
