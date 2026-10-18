@@ -314,6 +314,7 @@ public class Splash extends Activity
         Log.d(TAG, "output: " + cXbmcHome);
         fXbmcHome.mkdirs();
         unpackMarker().delete(); // LOCAL PATCH (megarushing): not complete until the end
+        boolean copyFailed = false; // LOCAL PATCH (megarushing): any failed file = no marker
 
         while (entries.hasMoreElements())
         {
@@ -356,6 +357,7 @@ public class Splash extends Activity
           catch (IOException e1)
           {
             e1.printStackTrace();
+            copyFailed = true;
           }
         }
 
@@ -363,9 +365,16 @@ public class Splash extends Activity
 
         fXbmcHome.setLastModified(fPackagePath.lastModified());
         // LOCAL PATCH (megarushing): mark the unpack complete, stamped with the APK's time.
-        File marker = unpackMarker();
-        new FileOutputStream(marker).close();
-        marker.setLastModified(fPackagePath.lastModified());
+        // A failed file (e.g. disk full) leaves the marker absent, so the next start unpacks again
+        // instead of running on a broken tree for good.
+        if (copyFailed)
+          Log.e(TAG, "unpack incomplete (a file failed to copy): marker not written");
+        else
+        {
+          File marker = unpackMarker();
+          new FileOutputStream(marker).close();
+          marker.setLastModified(fPackagePath.lastModified());
+        }
 
       }
       catch (FileNotFoundException e1)

@@ -1721,6 +1721,10 @@ int CGUIWindowManager::UnloadHiddenKeptWindows()
     // addControl): deleting those controls here was a use-after-free. Their windows stay loaded.
     if (IsPythonWindow(id) || IsAddonWindow(id))
       continue;
+    // The PVR guides' timeline refresh thread keeps a raw pointer to the grid after the window is
+    // left (StopThread(false) does not join it): never delete their controls here.
+    if (id == WINDOW_TV_GUIDE || id == WINDOW_RADIO_GUIDE)
+      continue;
     if (window->GetLoadType() != CGUIWindow::KEEP_IN_MEMORY &&
         window->GetLoadType() != CGUIWindow::LOAD_ON_GUI_INIT)
       continue;

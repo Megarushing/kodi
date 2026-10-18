@@ -1130,9 +1130,8 @@ void OnAllocationFailure()
   if (reserve)
   {
     free(reserve);
-    g_reserveReleases++;
-    CXBMCApp::android_printf("MemoryGuard: allocation failed, emergency reserve released (%u MB)",
-                   static_cast<unsigned>(GUARD_RESERVE_BYTES >> 20));
+    g_reserveReleases++; // logged later by MemoryGuardProcess: no logging here, the failing
+                         // allocation may come from inside the logger while it holds its mutex
     return; // operator new retries
   }
   std::set_new_handler(nullptr); // nothing left: let this allocation throw as usual

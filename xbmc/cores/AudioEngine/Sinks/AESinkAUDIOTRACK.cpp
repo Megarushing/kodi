@@ -172,11 +172,18 @@ int CAESinkAUDIOTRACK::AudioTrackWrite(char* audioData, int offsetInBytes, int s
       jobject local = env->NewDirectByteBuffer(m_directbuf.data(), m_directbuf.size());
       if (local && !env->ExceptionCheck())
       {
-        jni::jhobject holder = jni::jhobject::fromJNI(local);
+        // jhobject(local) owns the local ref, so setGlobal() swaps it for a global one (fromJNI()
+        // left the local ref alive on this long-lived thread: one leaked per buffer).
+        jni::jhobject holder(local);
         holder.setGlobal();
-        m_directByteBuffer = std::make_unique<CJNIByteBuffer>(holder);
+        if (holder && !env->ExceptionCheck())
+        {
+          m_directByteBuffer = std::make_unique<CJNIByteBuffer>(holder);
+          if (!m_directByteBuffer->get_raw() || env->ExceptionCheck())
+            m_directByteBuffer.reset(); // global ref allocation failed: use the array path
+        }
       }
-      else
+      if (env->ExceptionCheck())
         env->ExceptionClear();
     }
     if (m_directByteBuffer)
