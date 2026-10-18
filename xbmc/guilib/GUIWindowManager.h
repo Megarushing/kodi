@@ -199,6 +199,10 @@ public:
   int RemoveThreadMessageByMessageIds(int *pMessageIDList);
   void AddMsgTarget( IMsgTargetCallback* pMsgTarget );
   int GetActiveWindow() const;
+  /*! LOCAL PATCH (megarushing): unload kept-in-memory windows that are not active or visible (their
+   controls, list items and textures; window properties stay). They reload from the skin when opened.
+   Used by the Android memory guard during video playback. Returns how many were unloaded. */
+  int UnloadHiddenKeptWindows();
   int GetActiveWindowOrDialog() const;
   bool HasModalDialog(bool ignoreClosing) const;
   bool HasVisibleModalDialog() const;

@@ -1698,6 +1698,28 @@ void CGUIWindowManager::UnloadNotOnDemandWindows()
   }
 }
 
+// LOCAL PATCH (megarushing): see header.
+int CGUIWindowManager::UnloadHiddenKeptWindows()
+{
+  std::unique_lock<CCriticalSection> lock(CServiceBroker::GetWinSystem()->GetGfxContext());
+  const int active = GetActiveWindow();
+  int count = 0;
+  for (const auto& entry : m_mapWindows)
+  {
+    CGUIWindow* window = entry.second;
+    const int id = window->GetID();
+    if (id == active || id == WINDOW_FULLSCREEN_VIDEO || id == WINDOW_VISUALISATION ||
+        window->IsDialog() || window->IsActive() || IsWindowVisible(id))
+      continue;
+    if (window->GetLoadType() != CGUIWindow::KEEP_IN_MEMORY &&
+        window->GetLoadType() != CGUIWindow::LOAD_ON_GUI_INIT)
+      continue;
+    window->FreeResources(true);
+    count++;
+  }
+  return count;
+}
+
 void CGUIWindowManager::AddToWindowHistory(int newWindowID)
 {
   // Check the window stack to see if this window is in our history,
