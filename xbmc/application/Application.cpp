@@ -2110,6 +2110,13 @@ bool CApplication::PlayFile(CFileItem item, const std::string& player, bool bRes
     return true; // Special case; not to be treated as error.
   }
 
+#ifdef TARGET_ANDROID
+  // LOCAL PATCH (megarushing): make room before the video decoder allocates (4K start-up burst +
+  // a Home full of posters -> low-memory kill within seconds, bedroom Shield 2026-10-18 04:36/05:15).
+  if (!MUSIC::IsAudio(item) && !item.IsPicture())
+    CXBMCApp::PrepareMemoryForPlayback();
+#endif
+
   // Special handling for disc stubs.
   //! @todo Shouldn't disc stubs also be handled via appPlayer->OpenFile()?
   const CFileItem& resolvedItem{appPlay.GetResolvedItem()};

@@ -1176,6 +1176,29 @@ void MemoryGuardProcess(bool playingVideo)
 }
 } // namespace
 
+void CXBMCApp::PrepareMemoryForPlayback()
+{
+  if (!CServiceBroker::GetAppMessenger() || !CServiceBroker::GetAppMessenger()->IsProcessThread())
+    return;
+  CGUIComponent* gui = CServiceBroker::GetGUI();
+  if (!gui)
+    return;
+  const long avail = ReadProcKb("/proc/meminfo", "MemAvailable");
+  if (avail < 0 || avail >= GUARD_PREPLAY_UNLOAD_AVAIL_KB)
+    return;
+  const long rss = ReadProcKb("/proc/self/status", "VmRSS");
+  const int unloaded = gui->GetWindowManager().UnloadHiddenKeptWindows();
+  gui->GetLargeTextureManager().CleanupUnusedImages(true);
+  gui->GetTextureManager().FreeUnusedTextures(0);
+  using MalloptFn = int (*)(int, int);
+  static const auto mallopt_fn = reinterpret_cast<MalloptFn>(dlsym(RTLD_DEFAULT, "mallopt"));
+  if (mallopt_fn)
+    mallopt_fn(GUARD_M_PURGE, 0);
+  g_memoryGuard.unloadedThisPlayback = false; // the fullscreen pass still unloads the menu behind
+  CLog::Log(LOGWARNING, "MemoryGuard: before playback avail={}MB, unloaded {} hidden windows, rss {}->{}MB",
+            avail / 1024, unloaded, rss / 1024, ReadProcKb("/proc/self/status", "VmRSS") / 1024);
+}
+
 void CXBMCApp::ProcessSlow()
 {
   if ((m_playback_state & PLAYBACK_STATE_PLAYING) && !m_mediaSessionUpdated &&
