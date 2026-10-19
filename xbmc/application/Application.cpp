@@ -152,6 +152,7 @@
 #include "windowing/WindowSystemFactory.h"
 
 #if defined(TARGET_ANDROID)
+#include "platform/android/activity/JNIXBMCJsonHandler.h" // LOCAL PATCH (megarushing)
 #include "platform/android/activity/XBMCApp.h"
 #endif
 #ifdef TARGET_DARWIN
@@ -2081,6 +2082,8 @@ bool CApplication::Stop(int exitCode)
   // signalled that the app shall be destroyed. See android_main() implementation.
   if (!CXBMCApp::Get().Stop(exitCode))
     return false;
+  // LOCAL PATCH (megarushing): refuse new Java JSON requests and let running ones finish before teardown
+  jni::CJNIXBMCJsonHandler::Close(std::chrono::milliseconds(2000));
 #endif
 
   CLog::Log(LOGINFO, "Stopping the application...");
@@ -2766,6 +2769,9 @@ bool CApplication::OnMessage(CGUIMessage& message)
         ConfigureAndEnableAddons();
 
         m_bInitializing = false;
+#if defined(TARGET_ANDROID)
+        jni::CJNIXBMCJsonHandler::Open(); // LOCAL PATCH (megarushing): Java JSON requests allowed from here
+#endif
 
         if (message.GetSenderId() == WINDOW_SETTINGS_PROFILES)
           GetComponent<CApplicationSkinHandling>()->ReloadSkin(false);
