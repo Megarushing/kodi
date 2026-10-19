@@ -1,18 +1,29 @@
 #!/usr/bin/env bash
-# Kodi Mega: build the armeabi-v7a APK (Shield = 32-bit userspace) on MegaServer.
+# Kodi Mega: build the Android APK on MegaServer. Default armeabi-v7a (bedroom Shield = 32-bit userspace);
+# ABI=arm64-v8a builds the 64-bit APK (living-room Shield). Each ABI needs its OWN source checkout
+# (depends is configured inside tools/depends): use a git worktree, e.g. ~/kodi-mega-src-arm64.
 # Steps follow docs/README.Android.md. Re-runs are incremental; delete $WORK to start clean.
-# Usage: tools/mega/build-android.sh [depends|kodi|apk|symbols|all]   (default: all)
+# Usage: [ABI=arm64-v8a] tools/mega/build-android.sh [depends|kodi|apk|symbols|all]   (default: all)
 set -euo pipefail
 
-HOST=arm-linux-androideabi                                   # 32-bit ARM target
+ABI=${ABI:-armeabi-v7a}                                      # armeabi-v7a (32-bit) or arm64-v8a (64-bit)
+case $ABI in
+  armeabi-v7a) HOST=arm-linux-androideabi; WORK_DEFAULT=$HOME/kodi-mega-build ;;
+  arm64-v8a)   HOST=aarch64-linux-android; WORK_DEFAULT=$HOME/kodi-mega-build-arm64 ;;
+  *) echo "unknown ABI $ABI" >&2; exit 2 ;;
+esac
 SDK=$HOME/Android/Sdk                                        # sdkmanager root
 NDK=$SDK/ndk/21.4.7075529                                    # NDK version README.Android.md asks for
-WORK=$HOME/kodi-mega-build                                   # tarballs, depends prefix, cmake build dir
+WORK=${WORK:-$WORK_DEFAULT}                                  # tarballs, depends prefix, cmake build dir
 SIGNING=$HOME/.config/kodimega/signing.properties            # keystore path + passwords, never in git
 JOBS=$(getconf _NPROCESSORS_ONLN)
 
 SRC=$(cd "$(dirname "$0")/../.." && pwd)
 step=${1:-all}
+# one ABI per source checkout: refuse to reconfigure a tree that depends was set up for another host
+if [ -f "$SRC/tools/depends/Makefile.include" ] && ! grep -q "^HOST=$HOST\b" "$SRC/tools/depends/Makefile.include"; then
+  echo "this checkout's depends is configured for $(grep -m1 '^HOST=' "$SRC/tools/depends/Makefile.include") - use a separate worktree for $ABI" >&2; exit 2
+fi
 mkdir -p "$WORK/tarballs" "$WORK/depends" "$WORK/build"
 
 depends() {
@@ -48,7 +59,7 @@ symbols() {
   dir="$WORK/symbols/$rev"
   mkdir -p "$dir"
   cp "$WORK/build/libkodi.so" "$dir/"
-  sha256sum "$SRC"/kodiapp-armeabi-v7a-*.apk > "$dir/apk.sha256"
+  sha256sum "$SRC"/kodiapp-$ABI-*.apk > "$dir/apk.sha256"
   echo "symbols: $dir"
 }
 
