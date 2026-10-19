@@ -6,11 +6,12 @@
 # Usage: [ABI=arm64-v8a] tools/mega/build-android.sh [depends|kodi|apk|symbols|all]   (default: all)
 set -euo pipefail
 
-ABI=${ABI:-armeabi-v7a}                                      # armeabi-v7a (32-bit) or arm64-v8a (64-bit)
-case $ABI in
+MEGA_ABI=${ABI:-armeabi-v7a}                                 # armeabi-v7a (32-bit) or arm64-v8a (64-bit)
+unset ABI                                                    # never leak: GMP's configure reads $ABI (failed with ABI=arm64-v8a)
+case $MEGA_ABI in
   armeabi-v7a) HOST=arm-linux-androideabi; WORK_DEFAULT=$HOME/kodi-mega-build ;;
   arm64-v8a)   HOST=aarch64-linux-android; WORK_DEFAULT=$HOME/kodi-mega-build-arm64 ;;
-  *) echo "unknown ABI $ABI" >&2; exit 2 ;;
+  *) echo "unknown ABI $MEGA_ABI" >&2; exit 2 ;;
 esac
 SDK=$HOME/Android/Sdk                                        # sdkmanager root
 NDK=$SDK/ndk/21.4.7075529                                    # NDK version README.Android.md asks for
@@ -22,7 +23,7 @@ SRC=$(cd "$(dirname "$0")/../.." && pwd)
 step=${1:-all}
 # one ABI per source checkout: refuse to reconfigure a tree that depends was set up for another host
 if [ -f "$SRC/tools/depends/Makefile.include" ] && ! grep -q "^HOST=$HOST\b" "$SRC/tools/depends/Makefile.include"; then
-  echo "this checkout's depends is configured for $(grep -m1 '^HOST=' "$SRC/tools/depends/Makefile.include") - use a separate worktree for $ABI" >&2; exit 2
+  echo "this checkout's depends is configured for $(grep -m1 '^HOST=' "$SRC/tools/depends/Makefile.include") - use a separate worktree for $MEGA_ABI" >&2; exit 2
 fi
 mkdir -p "$WORK/tarballs" "$WORK/depends" "$WORK/build"
 
@@ -59,7 +60,7 @@ symbols() {
   dir="$WORK/symbols/$rev"
   mkdir -p "$dir"
   cp "$WORK/build/libkodi.so" "$dir/"
-  sha256sum "$SRC"/kodiapp-$ABI-*.apk > "$dir/apk.sha256"
+  sha256sum "$SRC"/kodiapp-$MEGA_ABI-*.apk > "$dir/apk.sha256"
   echo "symbols: $dir"
 }
 
