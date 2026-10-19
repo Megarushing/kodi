@@ -13,6 +13,8 @@
 
 #include <androidjni/JNIBase.h>
 
+#include <chrono> // LOCAL PATCH (megarushing)
+
 namespace jni
 {
 
@@ -22,6 +24,10 @@ namespace jni
     CJNIXBMCJsonHandler(const jni::jhobject &object) : CJNIBase(object) {}
 
     static void RegisterNatives(JNIEnv* env);
+
+    // LOCAL PATCH (megarushing): CApplication opens the gate when initialized, closes it in Stop()
+    static void Open();
+    static void Close(std::chrono::milliseconds wait);
 
 
   protected:

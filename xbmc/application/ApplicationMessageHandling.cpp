@@ -68,6 +68,7 @@
 #include <memory>
 
 #ifdef TARGET_ANDROID
+#include "platform/android/activity/JNIXBMCJsonHandler.h" // LOCAL PATCH (megarushing)
 #include "platform/android/activity/XBMCApp.h"
 #endif
 #ifdef TARGET_DARWIN_EMBEDDED
@@ -484,6 +485,9 @@ bool CApplicationMessageHandling::OnMessage(const CGUIMessage& message)
         m_app.ConfigureAndEnableAddons();
 
         m_app.DoneInitializing();
+#if defined(TARGET_ANDROID)
+        jni::CJNIXBMCJsonHandler::Open(); // LOCAL PATCH (megarushing): Java JSON requests allowed from here
+#endif
 
         if (message.GetSenderId() == WINDOW_SETTINGS_PROFILES)
           m_app.GetComponent<CApplicationSkinHandling>()->ReloadSkin(false);
