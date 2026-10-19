@@ -649,12 +649,30 @@ public class Splash extends Activity
 
   protected void startXBMC()
   {
-    // Run @APP_NAME@
-    Intent intent = getIntent();
-    intent.setClass(this, @APP_PACKAGE@.Main.class);
-    intent.addFlags(Intent.FLAG_ACTIVITY_PREVIOUS_IS_TOP);
-    startActivity(intent);
-    finish();
+    // LOCAL PATCH (megarushing): load the native library on a background thread first. Main.onCreate
+    // calls System.loadLibrary on the UI thread; the first load after an install (80 MB libkodi.so)
+    // blocked it long enough for Android to report an ANR on this Splash window ("Waited 5005ms for
+    // FocusEvent") and kill the app (Shields, 2026-10-18/19). Once loaded, Main's call is a no-op.
+    new Thread(() -> {
+      final long t0 = android.os.SystemClock.elapsedRealtime();
+      try
+      {
+        System.loadLibrary("@APP_NAME_LC@");
+      }
+      catch (Throwable e)
+      {
+        Log.e(TAG, "Preloading native library failed, Main will retry: " + e);
+      }
+      Log.i(TAG, "Native library preloaded in " + (android.os.SystemClock.elapsedRealtime() - t0) + " ms");
+      runOnUiThread(() -> {
+        // Run @APP_NAME@
+        Intent intent = getIntent();
+        intent.setClass(Splash.this, @APP_PACKAGE@.Main.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_PREVIOUS_IS_TOP);
+        startActivity(intent);
+        finish();
+      });
+    }, "KodiLibPreload").start();
   }
 
   @Override
