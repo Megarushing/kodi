@@ -39,12 +39,11 @@ bool CPlatformWebOS::InitStageOne()
 
 bool CPlatformWebOS::InitStageTwo()
 {
-  if (CServiceBroker::GetLogging().GetLogLevel() > LOG_LEVEL_DEBUG)
-  {
-    constexpr rlimit limit{0, 0};
-    if (setrlimit(RLIMIT_CORE, &limit) != 0)
-      CLog::Log(LOGERROR, "Failed to disable core dumps");
-  }
+  // Mega: always off, as upstream master. The log-level check left cores on (level > DEBUG is almost never true)
+  // and one ~470 MB core.<pid> filled the LG's app partition (2026-10-19).
+  constexpr rlimit limit{0, 0};
+  if (setrlimit(RLIMIT_CORE, &limit) != 0)
+    CLog::Log(LOGERROR, "Failed to disable core dumps");
 
   return CPlatformLinux::InitStageTwo();
 }
