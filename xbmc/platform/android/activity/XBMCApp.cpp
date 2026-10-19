@@ -1292,9 +1292,17 @@ void Handler(int, siginfo_t*, void* uctx)
 {
   const auto* uc = static_cast<ucontext_t*>(uctx);
   int n = 0;
+#if defined(__aarch64__)
+  g_addrs[n++] = uc->uc_mcontext.pc;
+  g_addrs[n++] = uc->uc_mcontext.regs[30]; // x30 = link register
+  uintptr_t sp = uc->uc_mcontext.sp;
+#elif defined(__arm__)
   g_addrs[n++] = uc->uc_mcontext.arm_pc;
   g_addrs[n++] = uc->uc_mcontext.arm_lr;
   uintptr_t sp = uc->uc_mcontext.arm_sp;
+#else
+  uintptr_t sp = 0; // no register capture on this ABI; stack scan is skipped
+#endif
   uintptr_t end = g_stackHi;
   if (sp >= g_stackLo && sp < g_stackHi)
   {
