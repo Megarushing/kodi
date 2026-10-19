@@ -114,6 +114,7 @@
 #include <androidjni/WindowManager.h>
 #include <crossguid/guid.hpp>
 #include <dlfcn.h>
+#include <malloc.h>
 #include <thread>
 #include <pthread.h>
 #include <sys/syscall.h>
@@ -1039,6 +1040,10 @@ constexpr int GUARD_RELIEF_EVERY_MS_VIDEO = 30000;
 constexpr long GUARD_PREPLAY_UNLOAD_AVAIL_KB = 600 * 1024; // unload hidden menus for a video below this
 constexpr int GUARD_REPORT_EVERY_MS = 60000; // routine "MemoryGuard: ok" line
 constexpr int GUARD_M_PURGE = -101; // bionic mallopt M_PURGE (API 28+): return free heap pages to the OS
+constexpr int GUARD_M_DECAY_TIME = -100; // bionic mallopt M_DECAY_TIME: 1 = give freed pages back over time
+// The VmSize limits are for the ~4 GB 32-bit address space. A 64-bit process reserves far more than it
+// uses (15 GB seen on the living-room Shield), which kept the guard at CRITICAL all the time.
+constexpr bool GUARD_CHECK_ADDRESS_SPACE = sizeof(void*) == 4;
 
 long ReadProcKb(const char* file, const char* key)
 {
@@ -1122,9 +1127,10 @@ void MemoryGuardProcess(bool playingVideo)
   int level = 0;
   if ((avail >= 0 && avail < GUARD_PRESSURE_AVAIL_KB) ||
       (swapTotal > 0 && swapFree >= 0 && swapFree < GUARD_PRESSURE_SWAPFREE_KB) ||
-      vmSize > GUARD_PRESSURE_VMSIZE_KB)
+      (GUARD_CHECK_ADDRESS_SPACE && vmSize > GUARD_PRESSURE_VMSIZE_KB))
     level = 1;
-  if ((avail >= 0 && avail < GUARD_CRITICAL_AVAIL_KB) || vmSize > GUARD_CRITICAL_VMSIZE_KB)
+  if ((avail >= 0 && avail < GUARD_CRITICAL_AVAIL_KB) ||
+      (GUARD_CHECK_ADDRESS_SPACE && vmSize > GUARD_CRITICAL_VMSIZE_KB))
     level = 2;
 
   // Unload as soon as fullscreen video is up and RAM is below the threshold: the 4K decoder's
@@ -1153,10 +1159,21 @@ void MemoryGuardProcess(bool playingVideo)
     // mallopt is declared only for API >= 26; Kodi builds against API 21, so look it up at runtime.
     using MalloptFn = int (*)(int, int);
     static const auto mallopt_fn = reinterpret_cast<MalloptFn>(dlsym(RTLD_DEFAULT, "mallopt"));
+    static const bool decayOn = [] {
+      // 64-bit only: freed heap was kept (mallinfo: 229 MB free inside a 790 MB heap after browsing).
+      if (sizeof(void*) == 8 && mallopt_fn)
+        return mallopt_fn(GUARD_M_DECAY_TIME, 1) == 1;
+      return false;
+    }();
+    const struct mallinfo heapBefore = mallinfo();
     if (mallopt_fn && !playingVideo)
       mallopt_fn(GUARD_M_PURGE, 0);
+    const struct mallinfo heapAfter = mallinfo();
     const auto after = gui->GetLargeTextureManager().GetStats();
     const long rssAfter = ReadProcKb("/proc/self/status", "VmRSS");
+    CLog::Log(LOGINFO, "MemoryGuard: heap used {}MB free {}->{}MB (decay {})",
+              static_cast<long>(heapAfter.uordblks >> 20), static_cast<long>(heapBefore.fordblks >> 20),
+              static_cast<long>(heapAfter.fordblks >> 20), decayOn ? "on" : "off");
     CLog::Log(level == 2 ? LOGWARNING : LOGINFO,
               "MemoryGuard: {} avail={}MB swapFree={}MB vmsize={}MB rss={}->{}MB | images {}->{} "
               "(referenced {}, queued {}) undrawnPixels={}->{}MB (referenced {}MB)",
