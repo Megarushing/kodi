@@ -67,8 +67,9 @@ void CGUIVideoControl::Render()
       CServiceBroker::GetWinSystem()->GetGfxContext().Clear(0);
       CServiceBroker::GetWinSystem()->GetGfxContext().SetScissors(old);
     }
-    else
-      appPlayer->Render(false, alpha);
+    // LOCAL PATCH (megarushing): hardware video layers still need the GUI pass
+    // for subtitle overlays. RenderManager leaves the video itself to RenderEx.
+    appPlayer->Render(false, alpha);
 
     CServiceBroker::GetWinSystem()->GetGfxContext().RemoveTransform();
   }
