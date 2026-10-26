@@ -105,6 +105,8 @@ public:
 
   void onReceive(CJNIIntent intent) override;
   void onNewIntent(CJNIIntent intent) override;
+  // LOCAL PATCH (megarushing): an intent held while the skin's startup window ran, replayed at GUI_MSG_UI_READY
+  void ReplayHeldIntent();
   void onActivityResult(int requestCode, int resultCode, CJNIIntent resultData) override;
   void onVolumeChanged(int volume) override;
   virtual void onAudioFocusChange(int focusChange);
@@ -226,6 +228,7 @@ private:
   std::unique_ptr<jni::CJNIXBMCMainView> m_mainView;
   std::unique_ptr<jni::CJNIXBMCMediaSession> m_mediaSession;
   std::string GetFilenameFromIntent(const CJNIIntent &intent);
+  void HandleIntent(const std::string& action, const std::string& targetFile);
 
   void run();
   void stop();
@@ -257,6 +260,9 @@ private:
   std::thread m_thread;
   std::atomic<bool> m_runActive{false}; //!< LOCAL PATCH (megarushing): run() thread is alive
   mutable CCriticalSection m_applicationsMutex;
+  CCriticalSection m_heldIntentMutex; //!< LOCAL PATCH (megarushing): guards the two strings below
+  std::string m_heldIntentAction;
+  std::string m_heldIntentFile;
   mutable std::vector<androidPackage> m_applications;
 
   std::shared_ptr<CNativeWindow> m_window;
