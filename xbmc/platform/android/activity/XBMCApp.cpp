@@ -1933,7 +1933,7 @@ void CXBMCApp::onNewIntent(CJNIIntent intent)
   // LOCAL PATCH (megarushing): an intent can arrive while Kodi's native side is not up (starting or
   // already shut down). CLog then dereferences a null logger: SIGSEGV fault addr 0x14 in
   // CLog::FormatAndLogInternal <- onNewIntent (bedroom Shield 2026-10-14 16:35). Same guard as onReceive.
-  if (!CServiceBroker::IsLoggingUp() || !g_application.IsInitialized())
+  if (!CServiceBroker::IsLoggingUp())
   {
     android_printf("CXBMCApp::onNewIntent - Kodi not initialized, intent ignored");
     return;
@@ -1947,6 +1947,43 @@ void CXBMCApp::onNewIntent(CJNIIntent intent)
   std::string action = intent.getAction();
   CLog::Log(LOGDEBUG, "CXBMCApp::onNewIntent - Got intent. Action: {}", action);
   std::string targetFile = GetFilenameFromIntent(intent);
+  {
+    // LOCAL PATCH (megarushing): with a skin Startup.xml (Arctic Fuse) Kodi stays "initializing" until that
+    // window closes, a few seconds after the intent arrives. Dropping it here meant a click on an Android TV
+    // home-row card only opened Home (bedroom Shield 2026-10-26). Hold it; ReplayHeldIntent() runs it at
+    // GUI_MSG_UI_READY. Checked under the lock so an intent cannot slip in after the replay.
+    std::unique_lock<CCriticalSection> lock(m_heldIntentMutex);
+    if (!g_application.IsInitialized())
+    {
+      if (targetFile.empty() ||
+          (action != CJNIIntent::ACTION_VIEW && action != CJNIIntent::ACTION_GET_CONTENT))
+        return;
+      CLog::Log(LOGINFO, "CXBMCApp::onNewIntent - Kodi still starting, holding intent until UI ready: {}",
+                CURL::GetRedacted(targetFile));
+      m_heldIntentAction = action;
+      m_heldIntentFile = targetFile;
+      return;
+    }
+  }
+  HandleIntent(action, targetFile);
+}
+
+void CXBMCApp::ReplayHeldIntent()
+{
+  std::string action, targetFile;
+  {
+    std::unique_lock<CCriticalSection> lock(m_heldIntentMutex);
+    action.swap(m_heldIntentAction);
+    targetFile.swap(m_heldIntentFile);
+  }
+  if (targetFile.empty())
+    return;
+  CLog::Log(LOGINFO, "CXBMCApp::ReplayHeldIntent - {}", CURL::GetRedacted(targetFile));
+  HandleIntent(action, targetFile);
+}
+
+void CXBMCApp::HandleIntent(const std::string& action, const std::string& targetFile)
+{
   if (!targetFile.empty() &&
       (action == CJNIIntent::ACTION_VIEW || action == CJNIIntent::ACTION_GET_CONTENT))
   {

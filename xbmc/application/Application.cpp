@@ -2771,6 +2771,7 @@ bool CApplication::OnMessage(CGUIMessage& message)
         m_bInitializing = false;
 #if defined(TARGET_ANDROID)
         jni::CJNIXBMCJsonHandler::Open(); // LOCAL PATCH (megarushing): Java JSON requests allowed from here
+        CXBMCApp::Get().ReplayHeldIntent(); // LOCAL PATCH (megarushing): a home-row click held during startup
 #endif
 
         if (message.GetSenderId() == WINDOW_SETTINGS_PROFILES)
