@@ -82,6 +82,18 @@ public:
 
   void RoundtripQueue(wayland::event_queue_t const& queue)
   {
+#ifdef TARGET_WEBOS
+    // LOCAL PATCH (megarushing): registry/seat callbacks can run on this pump.
+    // Delegating their roundtrip to ourselves and waiting prevents the pump
+    // from ever reaching its dispatch code (and prevents Stop() from joining).
+    // Do this before the queue mutex: a foreign caller may own it while waiting
+    // for this very callback to finish.
+    if (IsCurrentThread())
+    {
+      m_display.roundtrip_queue(queue);
+      return;
+    }
+#endif
     wayland::event_queue_t queueCopy{queue};
 
     // Serialize invocations of this function - it's used very rarely and usually
