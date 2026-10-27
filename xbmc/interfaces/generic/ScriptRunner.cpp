@@ -10,6 +10,9 @@
 
 #include "ServiceBroker.h"
 #include "URL.h"
+#ifdef TARGET_WEBOS
+#include "application/Application.h"
+#endif
 #include "dialogs/GUIDialogBusy.h"
 #include "dialogs/GUIDialogProgress.h"
 #include "guilib/GUIComponent.h"
@@ -110,6 +113,13 @@ bool CScriptRunner::WaitOnScriptResult(int scriptId,
                                        const std::string& path,
                                        const std::string& name)
 {
+#ifdef TARGET_WEBOS
+  // LOCAL PATCH (megarushing): CancelJobs joins directory workers before the
+  // script manager shuts down. Do not keep those workers waiting for Python
+  // after Quit; the manager still owns and safely stops the invokers later.
+  if (g_application.m_bStop)
+    return false;
+#endif
   bool cancelled = false;
 
   // Add-on scripts can be called from the main and other threads. If called
@@ -141,15 +151,29 @@ bool CScriptRunner::WaitOnScriptResult(int scriptId,
     // wait for the script to finish or be cancelled
     while (!IsCancelled() && CScriptInvocationManager::GetInstance().IsRunning(scriptId) &&
            !m_scriptDone.Wait(20ms))
-      ;
+    {
+#ifdef TARGET_WEBOS
+      if (g_application.m_bStop)
+        return false;
+#endif
+    }
 
     // give the script 30 seconds to exit before we attempt to stop it
     XbmcThreads::EndTime<> timer(30s);
     while (!timer.IsTimePast() && CScriptInvocationManager::GetInstance().IsRunning(scriptId) &&
            !m_scriptDone.Wait(20ms))
-      ;
+    {
+#ifdef TARGET_WEBOS
+      if (g_application.m_bStop)
+        return false;
+#endif
+    }
   }
 
+#ifdef TARGET_WEBOS
+  if (g_application.m_bStop)
+    return false;
+#endif
   if (cancelled || IsCancelled())
   {
     // cancel the script

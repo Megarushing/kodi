@@ -15,6 +15,9 @@
 #include "addons/AddonManager.h"
 #include "addons/IAddon.h"
 #include "addons/addoninfo/AddonType.h"
+#ifdef TARGET_WEBOS
+#include "application/Application.h"
+#endif
 #include "guilib/GUIComponent.h"
 #include "guilib/GUIWindowManager.h"
 #include "interfaces/generic/ScriptInvocationManager.h"
@@ -41,6 +44,13 @@ CWeatherJob::CWeatherJob(int location) : m_location(location)
 
 bool CWeatherJob::DoWork()
 {
+#ifdef TARGET_WEBOS
+  // LOCAL PATCH (megarushing): job-manager shutdown waits for this worker,
+  // while Python invokers are stopped later. Do not start/wait for weather
+  // Python during Quit or publish an incomplete weather result.
+  if (g_application.m_bStop)
+    return false;
+#endif
   // wait for the network
   if (!CServiceBroker::GetNetwork().IsAvailable())
     return false;
@@ -70,6 +80,10 @@ bool CWeatherJob::DoWork()
   {
     while (true)
     {
+#ifdef TARGET_WEBOS
+      if (g_application.m_bStop)
+        return false;
+#endif
       if (!CScriptInvocationManager::GetInstance().IsRunning(scriptId))
         break;
 
