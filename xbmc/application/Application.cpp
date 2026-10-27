@@ -2150,6 +2150,12 @@ bool CApplication::Stop(int exitCode)
     m_ExitCode = exitCode;
     CLog::Log(LOGINFO, "Stopping all");
 
+#ifdef TARGET_WEBOS
+    // LOCAL PATCH (megarushing), upstream xbmc/xbmc#30058: give every script
+    // its abort signal now so cooperative cleanup runs concurrently.
+    CScriptInvocationManager::GetInstance().NotifyAllScriptsAborting();
+#endif
+
     // cancel any jobs from the jobmanager
     CServiceBroker::GetJobManager()->CancelJobs();
 

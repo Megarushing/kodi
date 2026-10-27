@@ -18,6 +18,7 @@
 #include "utils/XTimeUtils.h"
 #include "utils/log.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <memory>
 #include <mutex>
@@ -140,6 +141,30 @@ void CScriptInvocationManager::Uninitialize()
 
   m_invocationHandlers.clear();
 }
+
+#ifdef TARGET_WEBOS
+void CScriptInvocationManager::NotifyAllScriptsAborting()
+{
+  // LOCAL PATCH (megarushing): upstream #30058 broadcast plus one 5 s budget
+  // shared by all service-stop waits, rather than a fresh 5 s for each holdout.
+  std::unique_lock<CCriticalSection> lock(m_critSection);
+  if (!m_shutdownDeadline)
+    m_shutdownDeadline = std::chrono::steady_clock::now() + SCRIPT_STOP_TIMEOUT;
+  for (const auto& handler : m_invocationHandlers)
+    handler.second->NotifyScriptAborting(nullptr);
+}
+
+std::chrono::milliseconds CScriptInvocationManager::GetShutdownScriptTimeout(
+    std::chrono::milliseconds fallback) const
+{
+  std::unique_lock<CCriticalSection> lock(m_critSection);
+  if (!m_shutdownDeadline)
+    return fallback;
+  const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+      *m_shutdownDeadline - std::chrono::steady_clock::now());
+  return std::min(fallback, std::max(std::chrono::milliseconds::zero(), remaining));
+}
+#endif
 
 void CScriptInvocationManager::RegisterLanguageInvocationHandler(ILanguageInvocationHandler *invocationHandler, const std::string &extension)
 {
