@@ -115,6 +115,11 @@ private:
   bool m_bindingModulesLoaded{true};
   int m_iDllScriptCounter{0}; // to keep track of the total scripts running that need the dll
 
+#ifdef TARGET_WEBOS
+  // LOCAL PATCH (megarushing): GIL retained for orphan scripts at app shutdown.
+  bool m_skipFinalize{false};
+#endif
+
   //Vector with list of threads used for running scripts
   PyList m_vecPyList;
   PlayerCallbackList m_vecPlayerCallbackList;
