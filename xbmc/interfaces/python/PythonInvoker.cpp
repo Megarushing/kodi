@@ -20,6 +20,7 @@
 #include "addons/addoninfo/AddonType.h"
 #ifdef TARGET_WEBOS
 #include "application/Application.h"
+#include "interfaces/generic/ScriptInvocationManager.h"
 #endif
 #include "dialogs/GUIDialogKaiToast.h"
 #include "filesystem/SpecialProtocol.h"
@@ -529,7 +530,12 @@ bool CPythonInvoker::stop(bool abort)
       //Release the lock while waiting for threads to finish
       lock.unlock();
 
-    XbmcThreads::EndTime<> timeout(PYTHON_SCRIPT_TIMEOUT);
+    auto stopTimeout = PYTHON_SCRIPT_TIMEOUT;
+#ifdef TARGET_WEBOS
+    if (g_application.m_bStop)
+      stopTimeout = CScriptInvocationManager::GetInstance().GetShutdownScriptTimeout(stopTimeout);
+#endif
+    XbmcThreads::EndTime<> timeout(stopTimeout);
     while (!m_stoppedEvent.Wait(15ms))
     {
       if (timeout.IsTimePast())
@@ -537,10 +543,9 @@ bool CPythonInvoker::stop(bool abort)
 #ifdef TARGET_WEBOS
         if (g_application.IsStopping())
           CLog::Log(LOGWARNING,
-                    "CPythonInvoker({}, {}): script did not stop in {} seconds; "
+                    "CPythonInvoker({}, {}): shared shutdown deadline reached; "
                     "deferring to bounded process shutdown",
-                    GetId(), m_sourceFile,
-                    std::chrono::duration_cast<std::chrono::seconds>(PYTHON_SCRIPT_TIMEOUT).count());
+                    GetId(), m_sourceFile);
         else
 #endif
         CLog::Log(LOGERROR,
@@ -566,7 +571,7 @@ bool CPythonInvoker::stop(bool abort)
     // Useful for add-on performance metrics
     if (!timeout.IsTimePast())
       CLog::Log(LOGDEBUG, "CPythonInvoker({}, {}): script termination took {}ms", GetId(),
-                m_sourceFile, (PYTHON_SCRIPT_TIMEOUT - timeout.GetTimeLeft()).count());
+                m_sourceFile, (stopTimeout - timeout.GetTimeLeft()).count());
 
     // Since we released the m_critical it's possible that the state is cleaned up
     // so we need to recheck for m_threadState == NULL

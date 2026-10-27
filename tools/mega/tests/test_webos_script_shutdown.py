@@ -12,9 +12,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 STUBS = r'''
 #include <chrono>
 #include <atomic>
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -24,7 +26,7 @@ using CCriticalSection = std::recursive_mutex;
 constexpr auto SCRIPT_STOP_TIMEOUT = 5s;
 constexpr auto SCRIPT_STOP_GRACE = 1s;
 constexpr int LOGERROR=1, LOGWARNING=2, LOGDEBUG=3, InvokerStateStopping=2, InvokerStateExecutionDone=3, InvokerStateFailed=9;
-constexpr auto PYTHON_SCRIPT_TIMEOUT=5s;
+constexpr auto PYTHON_SCRIPT_TIMEOUT=5000ms;
 struct { bool m_bStop=false; } g_application;
 struct CLog { template<class... T> static void Log(T&&...) {} };
 namespace XbmcThreads {
@@ -44,13 +46,16 @@ struct CLanguageInvokerThread {
 struct LanguageInvokerThread { bool done=false; std::shared_ptr<CLanguageInvokerThread> thread; std::string script; };
 struct Handler { int calls=0; void Uninitialize() { ++calls; } };
 struct CScriptInvocationManager {
-  CCriticalSection m_critSection;
+  mutable CCriticalSection m_critSection;
+  std::optional<std::chrono::steady_clock::time_point> m_shutdownDeadline;
   std::map<int,LanguageInvokerThread> m_scripts;
   std::map<int,int> m_scriptPaths;
   std::shared_ptr<CLanguageInvokerThread> m_lastInvokerThread;
   std::map<int,Handler*> m_invocationHandlers;
   void Process() {}
   void Uninitialize();
+  static CScriptInvocationManager& GetInstance() { static CScriptInvocationManager m; return m; }
+  std::chrono::milliseconds GetShutdownScriptTimeout(std::chrono::milliseconds fallback) const;
 };
 // Python API collaborators record shutdown ordering, not Python implementation.
 struct PyElem {};
@@ -179,6 +184,7 @@ class WebOSShutdownTest(unittest.TestCase):
         cls.tmp = tempfile.TemporaryDirectory(prefix='mega-webos-shutdown-')
         source = pathlib.Path(cls.tmp.name) / 'shutdown.cpp'
         source.write_text(STUBS + body(manager, 'void CScriptInvocationManager::Uninitialize()')
+                          + body(manager, 'std::chrono::milliseconds CScriptInvocationManager::GetShutdownScriptTimeout(')
                           + body(python, 'void XBPython::Uninitialize()')
                           + body(python, 'XBPython::~XBPython()')
                           + body(invoker, 'bool CPythonInvoker::stop(bool abort)') + MAIN)

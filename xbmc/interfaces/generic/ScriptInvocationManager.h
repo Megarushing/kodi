@@ -12,8 +12,10 @@
 #include "interfaces/generic/ILanguageInvoker.h"
 #include "threads/CriticalSection.h"
 
+#include <chrono>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -126,6 +128,10 @@ public:
    *      scripts beforehand lets them shut down in parallel.
    */
   void NotifyAllScriptsAborting();
+#ifdef TARGET_WEBOS
+  // LOCAL PATCH (megarushing): shared Quit deadline set by NotifyAllScriptsAborting().
+  std::chrono::milliseconds GetShutdownScriptTimeout(std::chrono::milliseconds fallback) const;
+#endif
 
   bool IsRunning(int scriptId) const;
   bool IsRunning(const std::string& scriptPath) const;
@@ -160,4 +166,8 @@ private:
   std::map<std::string, int> m_scriptPaths;
   int m_nextId = 0;
   mutable CCriticalSection m_critSection;
+#ifdef TARGET_WEBOS
+  // Shared cooperative-stop deadline. Never renewed by an individual script.
+  std::optional<std::chrono::steady_clock::time_point> m_shutdownDeadline;
+#endif
 };

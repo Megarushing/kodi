@@ -1908,7 +1908,6 @@ bool CApplication::Stop(int exitCode)
     // otherwise scans underway are not stopped
     CMusicLibraryQueue::GetInstance().CancelAllJobs();
     CVideoLibraryQueue::GetInstance().CancelAllJobs();
-
     // cancel any jobs from the jobmanager
     CServiceBroker::GetJobManager()->CancelJobs();
 
