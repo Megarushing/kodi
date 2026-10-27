@@ -18,6 +18,9 @@
 #include "addons/AddonManager.h"
 #include "addons/addoninfo/AddonInfo.h"
 #include "addons/addoninfo/AddonType.h"
+#ifdef TARGET_WEBOS
+#include "application/Application.h"
+#endif
 #include "dialogs/GUIDialogKaiToast.h"
 #include "filesystem/SpecialProtocol.h"
 #include "guilib/GUIComponent.h"
@@ -471,7 +474,25 @@ FILE* CPythonInvoker::PyFile_AsFileWithMode(PyObject* py_file, const char* mode)
 
 bool CPythonInvoker::stop(bool abort)
 {
+#ifdef TARGET_WEBOS
+  // LOCAL PATCH (megarushing): a finalizer blocked on Python's import lock can
+  // own m_critical forever. At process shutdown, leave it for bounded joining
+  // and GIL quarantine rather than blocking even before that deadline starts.
+  std::unique_lock lock(m_critical, std::defer_lock);
+  if (g_application.IsStopping())
+  {
+    if (!lock.try_lock())
+    {
+      CLog::Log(LOGWARNING, "CPythonInvoker({}, {}): busy during shutdown, deferring cleanup",
+                GetId(), m_sourceFile);
+      return false;
+    }
+  }
+  else
+    lock.lock();
+#else
   std::unique_lock lock(m_critical);
+#endif
   m_stop = true;
 
   if (!IsRunning() && !m_threadState)
@@ -513,6 +534,15 @@ bool CPythonInvoker::stop(bool abort)
     {
       if (timeout.IsTimePast())
       {
+#ifdef TARGET_WEBOS
+        if (g_application.IsStopping())
+          CLog::Log(LOGWARNING,
+                    "CPythonInvoker({}, {}): script did not stop in {} seconds; "
+                    "deferring to bounded process shutdown",
+                    GetId(), m_sourceFile,
+                    std::chrono::duration_cast<std::chrono::seconds>(PYTHON_SCRIPT_TIMEOUT).count());
+        else
+#endif
         CLog::Log(LOGERROR,
                   "CPythonInvoker({}, {}): script didn't stop in {} seconds - let's kill it",
                   GetId(), m_sourceFile,
@@ -540,6 +570,17 @@ bool CPythonInvoker::stop(bool abort)
 
     // Since we released the m_critical it's possible that the state is cleaned up
     // so we need to recheck for m_threadState == NULL
+#ifdef TARGET_WEBOS
+    // LOCAL PATCH (megarushing): async SystemExit can interrupt an import's lock
+    // bookkeeping and strand every other interpreter. Quit already notified
+    // cooperative scripts; freeze any holdouts at the bounded shutdown boundary.
+    // Explicitly stopping an individual script outside Quit retains old behavior.
+    if (g_application.IsStopping())
+    {
+      setState(InvokerStateFailed);
+      return true;
+    }
+#endif
     if (m_threadState != NULL)
     {
       PyThreadState* ts = PyThreadState_New(m_threadState->interp);

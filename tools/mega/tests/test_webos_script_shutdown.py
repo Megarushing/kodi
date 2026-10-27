@@ -11,22 +11,27 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 STUBS = r'''
 #include <chrono>
+#include <atomic>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 using namespace std::chrono_literals;
 using CCriticalSection = std::recursive_mutex;
 constexpr auto SCRIPT_STOP_TIMEOUT = 5s;
 constexpr auto SCRIPT_STOP_GRACE = 1s;
-constexpr int LOGERROR=1, LOGWARNING=2, InvokerStateFailed=9;
+constexpr int LOGERROR=1, LOGWARNING=2, LOGDEBUG=3, InvokerStateStopping=2, InvokerStateExecutionDone=3, InvokerStateFailed=9;
+constexpr auto PYTHON_SCRIPT_TIMEOUT=5s;
+struct { bool m_bStop=false; } g_application;
 struct CLog { template<class... T> static void Log(T&&...) {} };
 namespace XbmcThreads {
 template<class T=void> struct EndTime {
   template<class U> explicit EndTime(U) {}
   std::chrono::milliseconds GetTimeLeft() const { return 1ms; }
+  bool IsTimePast() const { return true; }
 };
 }
 struct CLanguageInvokerThread {
@@ -51,9 +56,14 @@ struct CScriptInvocationManager {
 struct PyElem {};
 struct PyList : std::vector<PyElem> { bool hadSomethingRemoved=false; void lock() {} void unlock() {} };
 struct Announcer { void RemoveAnnouncer(void*) {} };
-struct CServiceBroker { static Announcer* GetAnnouncementManager() { static Announcer a; return &a; } };
+struct Messenger { bool IsProcessThread() { return false; } void ProcessMessages() {} };
+struct CServiceBroker {
+ static Announcer* GetAnnouncementManager() { static Announcer a; return &a; }
+ static Messenger* GetAppMessenger() { static Messenger m; return &m; }
+};
 struct PyInterpreterState { int value; };
-using PyThreadState = int;
+using PyObject=int;
+struct PyThreadState { PyInterpreterState* interp=nullptr; PyObject* async_exc=nullptr; };
 using PyGILState_STATE = int;
 static PyInterpreterState mainInterp{0}, orphanInterp{1};
 static bool orphan=false, gilHeld=false;
@@ -64,9 +74,34 @@ void PyGILState_Release(PyGILState_STATE) { gilHeld=false; }
 PyInterpreterState* PyInterpreterState_Main() { return &mainInterp; }
 PyInterpreterState* PyInterpreterState_Head() { return orphan ? &orphanInterp : &mainInterp; }
 PyInterpreterState* PyInterpreterState_Next(PyInterpreterState* p) { return p==&orphanInterp ? &mainInterp : nullptr; }
-PyThreadState* PyInterpreterState_ThreadHead(PyInterpreterState*) { return nullptr; }
+static PyThreadState fakeState;
+PyThreadState* PyInterpreterState_ThreadHead(PyInterpreterState*) { return &fakeState; }
+PyThreadState* PyThreadState_Next(PyThreadState*) { return nullptr; }
 void PyThreadState_Swap(PyThreadState*) {}
-using PyObject=int;
+void PyEval_RestoreThread(PyThreadState*) {}
+void PyEval_ReleaseThread(PyThreadState*) {}
+static PyObject exception=1;
+static PyObject* PyExc_SystemExit=&exception;
+static int injections=0;
+void Py_XDECREF(PyObject*) {}
+void Py_XINCREF(PyObject*) { ++injections; }
+struct CSingleExit {
+ CCriticalSection& c; CSingleExit(CCriticalSection& v):c(v) { c.unlock(); }
+ ~CSingleExit() { c.lock(); }
+};
+struct CPythonInvoker {
+ CCriticalSection m_critical;
+ bool m_stop=false, m_addon=false;
+ PyThreadState* m_threadState=&fakeState;
+ std::string m_sourceFile="fixture.py";
+ struct Event { bool Wait(std::chrono::milliseconds) { return false; } } m_stoppedEvent;
+ bool IsRunning() { return true; }
+ void setState(int) {}
+ int GetId() { return 1; }
+ void AbortNotification() {}
+ void pulseGlobalEvent() {}
+ bool stop(bool);
+};
 PyObject* PyImport_GetModuleDict() { return nullptr; }
 void PyDict_Clear(PyObject*) {}
 void Py_Finalize() { ++finalized; }
@@ -84,7 +119,23 @@ struct XBPython {
 MAIN = r'''
 int main(int argc,char** argv) {
   std::string mode=argc>1?argv[1]:"";
-  if (mode=="stubborn" || mode=="cooperative" || mode=="done") {
+  if (mode=="stop-quitting" || mode=="stop-ordinary" || mode=="stop-busy") {
+    CPythonInvoker invoker;
+    g_application.m_bStop=mode!="stop-ordinary";
+    std::atomic<bool> locked{false};
+    std::thread worker;
+    if (mode=="stop-busy") {
+      worker=std::thread([&]{ std::lock_guard<CCriticalSection> guard(invoker.m_critical); locked=true; std::this_thread::sleep_for(200ms); });
+      while (!locked) std::this_thread::yield();
+    }
+    auto start=std::chrono::steady_clock::now();
+    invoker.stop(false);
+    auto elapsed=std::chrono::steady_clock::now()-start;
+    if (worker.joinable()) worker.join();
+    if (mode=="stop-busy" && elapsed>100ms) throw std::runtime_error("shutdown waited for an invoker critical section");
+    if (mode=="stop-quitting" && injections) throw std::runtime_error("shutdown injected async SystemExit into imports");
+    if (mode=="stop-ordinary" && !injections) throw std::runtime_error("ordinary script stop lost interruption");
+  } else if (mode=="stubborn" || mode=="cooperative" || mode=="done") {
     CScriptInvocationManager m; Handler handler; m.m_invocationHandlers[1]=&handler;
     auto thread=std::make_shared<CLanguageInvokerThread>(); thread->stubborn=mode=="stubborn";
     m.m_scripts.emplace(1,LanguageInvokerThread{mode=="done",thread,"fixture.py"});
@@ -124,11 +175,13 @@ class WebOSShutdownTest(unittest.TestCase):
     def setUpClass(cls):
         manager = (ROOT / 'xbmc/interfaces/generic/ScriptInvocationManager.cpp').read_text()
         python = (ROOT / 'xbmc/interfaces/python/XBPython.cpp').read_text()
+        invoker = (ROOT / 'xbmc/interfaces/python/PythonInvoker.cpp').read_text()
         cls.tmp = tempfile.TemporaryDirectory(prefix='mega-webos-shutdown-')
         source = pathlib.Path(cls.tmp.name) / 'shutdown.cpp'
         source.write_text(STUBS + body(manager, 'void CScriptInvocationManager::Uninitialize()')
                           + body(python, 'void XBPython::Uninitialize()')
-                          + body(python, 'XBPython::~XBPython()') + MAIN)
+                          + body(python, 'XBPython::~XBPython()')
+                          + body(invoker, 'bool CPythonInvoker::stop(bool abort)') + MAIN)
         cls.binary = source.with_suffix('')
         compiler = shutil.which('c++')
         if not compiler:
@@ -161,6 +214,15 @@ class WebOSShutdownTest(unittest.TestCase):
 
     def test_clean_python_still_finalizes(self):
         self.scenario('clean')
+
+    def test_shutdown_does_not_interrupt_an_import_with_async_exception(self):
+        self.scenario('stop-quitting')
+
+    def test_shutdown_does_not_wait_for_invoker_critical_section(self):
+        self.scenario('stop-busy')
+
+    def test_ordinary_script_stop_retains_async_interruption(self):
+        self.scenario('stop-ordinary')
 
 
 if __name__ == '__main__':
