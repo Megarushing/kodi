@@ -156,9 +156,13 @@ bool CDVDVideoCodecStarfish::OpenInternal(CDVDStreamInfo& hints, CDVDCodecOption
     {
       const auto settings = CServiceBroker::GetSettingsComponent()->GetSettings();
       bool removeDovi{false};
+      // LOCAL PATCH (megarushing), matching upstream webOS #27144: an EL
+      // requires the single-layer compatibility path even if the toggle is off.
+      bool convertDovi = m_hints.dovi.el_present_flag;
 
       if (settings)
       {
+        convertDovi = convertDovi || settings->GetBool(CSettings::SETTING_VIDEOPLAYER_CONVERTDOVI);
         const std::shared_ptr<CSettingList> allowedHdrFormatsSetting(
             std::dynamic_pointer_cast<CSettingList>(
                 settings->GetSetting(CSettings::SETTING_VIDEOPLAYER_ALLOWEDHDRFORMATS)));
@@ -179,18 +183,6 @@ bool CDVDVideoCodecStarfish::OpenInternal(CDVDStreamInfo& hints, CDVDCodecOption
           isDvhe = true;
       }
 
-      if (!removeDovi && (isDvhe || isDvh1))
-      {
-        m_formatname = isDvhe ? "starfish-dvhe" : "starfish-dvh1";
-
-        payloadArg["option"]["externalStreamingInfo"]["contents"]["DolbyHdrInfo"]
-                  ["encryptionType"] = "clear"; //"clear", "bl", "el", "all"
-        payloadArg["option"]["externalStreamingInfo"]["contents"]["DolbyHdrInfo"]["profileId"] =
-            m_hints.dovi.dv_profile; // profile 0-9
-        payloadArg["option"]["externalStreamingInfo"]["contents"]["DolbyHdrInfo"]["trackType"] =
-            m_hints.dovi.el_present_flag ? "dual" : "single"; // "single" / "dual"
-      }
-
       // check for hevc-hvcC and convert to h265-annex-b
       if (m_hints.extradata && !m_hints.cryptoSession)
       {
@@ -207,7 +199,32 @@ bool CDVDVideoCodecStarfish::OpenInternal(CDVDStreamInfo& hints, CDVDCodecOption
 
           // webOS doesn't support HDR10+ and it can cause issues
           m_bitstream->SetRemoveHdr10Plus(true);
+
+          // LOCAL PATCH (megarushing): convert RPU metadata and discard EL in
+          // the existing bitstream converter, then describe the converted
+          // stream to Starfish. Never advertise conversion without a converter.
+          if (!removeDovi && convertDovi && m_hints.dovi.dv_profile == 7)
+          {
+            m_bitstream->SetConvertDovi(true);
+            m_hints.dovi.dv_profile = 8;
+            m_hints.dovi.el_present_flag = false;
+            CLog::LogF(LOGINFO,
+                      "Enabling Dolby Vision Profile 7 to 8.1 compatibility conversion "
+                      "(single layer, no video re-encode)");
+          }
         }
+      }
+
+      // Build decoder metadata only AFTER any bitstream/profile conversion.
+      if (!removeDovi && (isDvhe || isDvh1))
+      {
+        m_formatname = isDvhe ? "starfish-dvhe" : "starfish-dvh1";
+        payloadArg["option"]["externalStreamingInfo"]["contents"]["DolbyHdrInfo"]
+                  ["encryptionType"] = "clear";
+        payloadArg["option"]["externalStreamingInfo"]["contents"]["DolbyHdrInfo"]["profileId"] =
+            m_hints.dovi.dv_profile;
+        payloadArg["option"]["externalStreamingInfo"]["contents"]["DolbyHdrInfo"]["trackType"] =
+            m_hints.dovi.el_present_flag ? "dual" : "single";
       }
 
       break;

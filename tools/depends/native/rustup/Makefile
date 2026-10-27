@@ -37,7 +37,11 @@ $(APP): $(PLATFORM)
 	$(RUSTUP) default $(RUST_TOOLCHAIN_VERSION)
 
 ifeq ($(CROSS_COMPILING),yes)
+ifeq ($(TARGET_PLATFORM),webos)
+	$(RUSTUP) target add armv7-unknown-linux-gnueabi
+else
 	$(RUSTUP) target add $(HOST)
+endif
 endif
 
 	touch $@

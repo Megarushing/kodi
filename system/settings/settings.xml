@@ -180,7 +180,12 @@
           <control type="toggle" />
         </setting>
         <setting id="videoplayer.convertdovi" type="boolean" label="39196" help="39197">
-          <requirement>HAS_MEDIACODEC</requirement>
+          <requirement>
+            <or>
+              <condition>HAS_MEDIACODEC</condition>
+              <condition>HAVE_WEBOS</condition>
+            </or>
+          </requirement>
           <dependencies>
             <dependency type="visible">
               <condition on="property" name="supportsdolbyvision" />

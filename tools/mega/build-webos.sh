@@ -34,6 +34,11 @@ depends() {
 }
 
 kodi() {
+  # LOCAL PATCH (megarushing): incremental builds also need the real RPU
+  # conversion library. A settings toggle/EL discard without libdovi is not it.
+  local cargo_jobs=$((JOBS > 8 ? 8 : JOBS))
+  CARGO_BUILD_JOBS="$cargo_jobs" make -C "$SRC/tools/depends/native" -j"$cargo_jobs" rustup cargo-c
+  CARGO_BUILD_JOBS="$cargo_jobs" make -C "$SRC/tools/depends/target/libdovi"
   make -C "$SRC/tools/depends/target/cmakebuildsys" BUILD_DIR="$WORK/build" CMAKE_EXTRA_ARGUMENTS="$CMAKE_ARGS"
   make -C "$WORK/build" -j"$JOBS"
 }
