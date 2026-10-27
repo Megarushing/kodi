@@ -11,6 +11,7 @@
 #include "interfaces/generic/ILanguageInvocationHandler.h"
 #include "interfaces/generic/ILanguageInvoker.h"
 #include "interfaces/generic/LanguageInvokerThread.h"
+#include "threads/SystemClock.h"
 #include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
@@ -22,6 +23,15 @@
 #include <mutex>
 #include <utility>
 #include <vector>
+
+#ifdef TARGET_WEBOS
+namespace
+{
+// LOCAL PATCH (megarushing): one shared deadline, not one timeout per blocked script.
+constexpr auto SCRIPT_STOP_TIMEOUT = std::chrono::seconds(5);
+constexpr auto SCRIPT_STOP_GRACE = std::chrono::seconds(1);
+} // namespace
+#endif
 
 CScriptInvocationManager::~CScriptInvocationManager()
 {
@@ -93,8 +103,32 @@ void CScriptInvocationManager::Uninitialize()
   for (auto& it : tempList)
   {
     if (!it.done)
+#ifdef TARGET_WEBOS
+      it.thread->Stop(false);
+#else
       it.thread->Stop(true);
+#endif
   }
+
+#ifdef TARGET_WEBOS
+  // LOCAL PATCH (megarushing), xbmc/xbmc#29953/#29954: a stuck Python import or
+  // native call must not keep the app's window alive forever after Quit. The
+  // Python handler below freezes orphan interpreters before Kodi tears down.
+  XbmcThreads::EndTime<> timeout(SCRIPT_STOP_TIMEOUT);
+  XbmcThreads::EndTime<> grace(SCRIPT_STOP_GRACE);
+  for (auto& it : tempList)
+  {
+    const auto& end = it.thread->GetState() == InvokerStateFailed ? grace : timeout;
+    if (it.done || it.thread->WaitForExit(end.GetTimeLeft()))
+      continue;
+    CLog::Log(LOGERROR, "CScriptInvocationManager: script {} did not stop, not waiting for it",
+              it.script);
+    // Intentionally retained until process exit: destroying CThread would join
+    // the same blocked invoker again. Do not detach a live invoker or finalize
+    // its Python interpreter underneath it.
+    new std::shared_ptr<CLanguageInvokerThread>(it.thread);
+  }
+#endif
 
   lock.lock();
 

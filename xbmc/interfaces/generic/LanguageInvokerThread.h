@@ -11,6 +11,7 @@
 #include "interfaces/generic/ILanguageInvoker.h"
 #include "threads/Thread.h"
 
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,14 @@ public:
     return !m_bStop && m_reusable && GetState() == InvokerStateScriptDone && m_script == script;
   };
   virtual void Release();
+
+#ifdef TARGET_WEBOS
+  // LOCAL PATCH (megarushing): bounded shutdown join, adapted from xbmc/xbmc#29954.
+  bool WaitForExit(std::chrono::milliseconds timeout)
+  {
+    return CThread::Join(timeout) || !CThread::IsRunning();
+  }
+#endif
 
 protected:
   bool execute(const std::string &script, const std::vector<std::string> &arguments) override;

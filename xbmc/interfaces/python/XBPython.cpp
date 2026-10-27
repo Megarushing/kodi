@@ -57,6 +57,13 @@ XBPython::~XBPython()
 #if PY_VERSION_HEX >= 0x03070000
   if (Py_IsInitialized())
   {
+#ifdef TARGET_WEBOS
+    // LOCAL PATCH (megarushing), xbmc/xbmc#29954: never finalize a runtime with
+    // blocked subinterpreters. Uninitialize() already retained its GIL.
+    if (m_skipFinalize)
+      return;
+#endif
+
     // Switch to the main interpreter thread before finalizing
     PyThreadState_Swap(PyInterpreterState_ThreadHead(PyInterpreterState_Main()));
 
@@ -448,6 +455,37 @@ void XBPython::Uninitialize()
 
   // cleanup threads that are still running
   tmpvec.clear();
+
+#ifdef TARGET_WEBOS
+  // LOCAL PATCH (megarushing), adapted from xbmc/xbmc#29954 for Omega/Python 3.11.
+  // Uninitialize can be called twice. On the main shutdown thread use the GIL
+  // state API rather than restoring a thread state owned by a script thread.
+  if (m_skipFinalize)
+    return;
+  int scriptsRunning;
+  {
+    std::unique_lock<CCriticalSection> counterLock(m_critSection);
+    scriptsRunning = m_iDllScriptCounter;
+  }
+  const PyGILState_STATE gil = PyGILState_Ensure();
+  bool interpreterLeft = false;
+  for (PyInterpreterState* interp = PyInterpreterState_Head(); interp;
+       interp = PyInterpreterState_Next(interp))
+  {
+    if (interp != PyInterpreterState_Main())
+      interpreterLeft = true;
+  }
+  m_skipFinalize = scriptsRunning > 0 || interpreterLeft;
+  if (m_skipFinalize)
+  {
+    CLog::Log(LOGWARNING,
+              "XBPython: {} script(s) still running, orphan interpreter: {}; "
+              "retaining GIL and not finalizing Python at exit",
+              scriptsRunning, interpreterLeft);
+  }
+  else
+    PyGILState_Release(gil);
+#endif
 }
 
 void XBPython::Process()
