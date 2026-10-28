@@ -10733,10 +10733,13 @@ void CVideoDatabase::CleanDatabase(CGUIDialogProgressBarHandle* handle,
 
       CLog::LogFC(LOGDEBUG, LOGDATABASE, "Cleaning paths that don't exist and have content set...");
       sql = "SELECT path.idPath, path.strPath, path.idParentPath FROM path "
-            "WHERE NOT ((strContent IS NULL OR strContent = '') "
+            "WHERE (NOT ((strContent IS NULL OR strContent = '') "
             "AND (strSettings IS NULL OR strSettings = '') "
             "AND (strHash IS NULL OR strHash = '') "
             "AND (exclude IS NULL OR exclude != 1)) "
+            // LOCAL PATCH (megarushing): an episode clean clears the folder hash. Include
+            // linked show paths anyway, otherwise deleted empty shows can survive forever.
+            "OR EXISTS (SELECT 1 FROM tvshowlinkpath WHERE tvshowlinkpath.idPath = path.idPath)) "
             // Media that still points at a path has not been cleaned, so the path stays
             "AND NOT EXISTS (SELECT 1 FROM files WHERE files.idPath = path.idPath) "
             "AND NOT EXISTS (SELECT 1 FROM tvshowlinkpath JOIN episode ON "
