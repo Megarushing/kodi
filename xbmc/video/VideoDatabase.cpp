@@ -10179,11 +10179,16 @@ void CVideoDatabase::CleanDatabase(CGUIDialogProgressBarHandle* handle,
 
       CLog::Log(LOGDEBUG, LOGDATABASE,
                 "{}: Cleaning paths that don't exist and have content set...", __FUNCTION__);
-      sql = "SELECT path.idPath, path.strPath, path.idParentPath FROM path "
+      // LOCAL PATCH (megarushing): an episode clean clears the folder hash. Include
+      // linked show paths anyway, otherwise deleted empty shows can survive forever.
+      sql = "SELECT path.idPath, path.strPath, path.idParentPath, "
+            "EXISTS (SELECT 1 FROM tvshowlinkpath WHERE tvshowlinkpath.idPath = path.idPath) "
+            "FROM path "
             "WHERE NOT ((strContent IS NULL OR strContent = '') "
             "AND (strSettings IS NULL OR strSettings = '') "
             "AND (strHash IS NULL OR strHash = '') "
-            "AND (exclude IS NULL OR exclude != 1))";
+            "AND (exclude IS NULL OR exclude != 1)) "
+            "OR EXISTS (SELECT 1 FROM tvshowlinkpath WHERE tvshowlinkpath.idPath = path.idPath)";
       m_pDS2->query(sql);
       std::string strIds;
       while (!m_pDS2->eof())
@@ -10204,6 +10209,21 @@ void CVideoDatabase::CleanDatabase(CGUIDialogProgressBarHandle* handle,
         }
         else
           exists = CDirectory::Exists(path, false);
+
+        // LOCAL PATCH (megarushing): a missing show folder is not evidence of a
+        // deliberate deletion while its configured source is unavailable. This also
+        // protects the newly included empty-hash links; existing folders stay intact.
+        if (!exists && m_pDS2->fv(3).get_asBool())
+        {
+          SScanSettings settings;
+          std::string sourcePath;
+          GetSourcePath(path, sourcePath, settings);
+          if (sourcePath.empty() || !CDirectory::Exists(sourcePath, false))
+          {
+            m_pDS2->next();
+            continue;
+          }
+        }
 
         if (((pathsDeleteDecision != pathsDeleteDecisions.end() && pathsDeleteDecision->second) ||
              (pathsDeleteDecision == pathsDeleteDecisions.end() && !exists)) &&
