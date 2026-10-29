@@ -1,60 +1,34 @@
-# HTTP circular-cache starvation: RED regression, not a fix
+# HTTP cache starvation and cancellation
 
-Manual command: `python3 tools/mega/tests/test_http_cache_starvation.py`.
-Native C++17 harness compiles the verbatim production `CFileCache::Read` and
-`CCircularCache::WaitForData` bodies. Only scheduling, logging, locks and cache
-producer state are replaced. The virtual clock avoids real ten-second waits.
+Status: **core fix implemented and host regressions green; ARM64/live acceptance pending**. Deployment is authorised only to the living-room Shield for this workstream. No FFmpeg or dependency patch.
 
-## Verified on b651fff000
+## Demonstrated failure
 
-Six new tests: true EOF and explicit cache error PASS; 40-second starvation,
-60-second HTTP patience expiry, pre-read cancellation and during-wait cancellation
-FAIL. All four failures return zero after 10000 virtual milliseconds while EOF is
-false. Full discovery: 55 tests, 4 expected failures; existing 49 tests pass.
-Cancellation tests define an unwired contract, not proof of a working Abort path.
-The explicit cache error test is NOT a producer/source-error test. Source failure,
-reopen/reset, real HTTP, Matroska packet integrity and device Stop remain untested.
+`CCircularCache::WaitForData` returns available bytes (possibly zero) when a timed wait expires, even if input is still open. The old `CFileCache::Read` treated that zero as EOF after ten seconds. `CFile::Read` passed it to `CDVDInputStreamFile`, which set input EOF; the demux callback then returned `AVERROR_EOF` to Matroska. A controlled open HTTP response with a 40-second gap reproduced premature Matroska EOF with `deadline_s=600 expired=false input_eof=true`. Separately, the old demux20s deadline also produces terminal `AVERROR_EXIT`; extending that timer alone did not fix the cache false EOF.
 
-## Exact causal trace at this revision
+## Scope of the fix
 
-* `xbmc/filesystem/CircularCache.cpp:182-202`: WaitForData computes availability,
-  waits to deadline, then returns availability (zero), even if !IsEndOfInput.
-* `xbmc/filesystem/FileCache.cpp:469-513`: ReadFromCache WOULD_BLOCK triggers
-  WaitForData(1, 10s); returned zero bypasses CACHE_RC_TIMEOUT and returns EOF.
-* `xbmc/filesystem/File.cpp:593-668`: CFile Read passes the zero to its caller.
-* `xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamFile.cpp:90-103`: zero
-  sets m_eof; demux dvd_file_read maps zero to AVERROR_EOF. Parent live evidence
-  confirms premature Matroska termination during an open 40-second HTTP gap.
+- Only HTTP/HTTPS cache reads wait through temporary starvation, in 100ms slices, up to `max(20 seconds, network/curllowspeedtime)`. This and the demux deadline now share the configured patience. The timeout is finite, not a promise of unlimited buffering.
+- Zero is returned only for real end-of-input after draining any final write that races the EOF observation. Cached bytes preceding terminal source errors are delivered; the eventual source failure/premature known-length zero is an error, not a successful EOF. Positive reads reset the next read's patience budget.
+- Global `WaitForData` semantics, nonblocking cache status, seeking and nonHTTP ten-second behavior are unchanged. Explicit zero-size read probes remain immediate.
+- Internal `IOCTRL_CANCEL_READ=32` is a nonblocking, idempotent terminal-abort request. Video input forwards Abort to cache/source; the cache marks its read aborted and producer stopped before signalling the shared seek event. It never acquires the read lock or joins from that control path.
+- Curl cancellation only stores an owned atomic flag, not replaceable seek-state pointers. Each read state borrows that flag from its owning curl file through `SetCommonOptions`; the file survives until the producer joins. Curl polling checks the flag in bounded100ms slices, and source cancellation occurs before cache producer join. The old blocking public `Cancel()` is not called. Reopen/reset clears abort/error/patience as appropriate.
+- No new retry/error is exposed to FFmpeg for a temporary empty HTTP cache. True EOF, finite timeout and user cancellation remain distinct. Existing curl error/retry policy is otherwise unchanged.
 
-## Safety blocker and next required change
+## Tests
 
-Extending the wait alone is not safe. `VideoPlayer.cpp:709-715` aborts demux and
-input, but `DVDInputStream.h:173` defaults Abort to a no-op and
-CDVDInputStreamFile does not override it. FileCache Read holds m_sync while
-waiting. FileCache Close calls StopThread before taking that lock and closing the
-source (`FileCache.cpp:578-605`). The producer can still be blocked in curl.
-`CurlFile.cpp:1038-1043` public Cancel sets a plain bool and waits for m_opened to
-clear: calling it synchronously before Close can deadlock. FillBuffer checks that
-bool at line 1691, but its select wait at 1833-1867 is not bounded to a cancellation
-slice. An atomic, lifetime-safe, nonblocking cancellation route from input Abort
-through cache to producer/curl, including Close and reopen ordering, is required;
-no such route was implemented or claimed safe in this bounded task.
+Manual: `python3 tools/mega/tests/test_http_cache_starvation.py` and `python3 tools/mega/tests/test_http_curl_cancellation.py`.
 
-Also `FileCache.cpp:342-387` marks EndOfInput for both terminal source errors and
-true EOF. A fix must preserve that distinction, not merely retry a zero returned
-from WaitForData. Do not expose transient starvation errors to FFmpeg. Scope HTTP
-waiting only; retain local/SMB behavior and seek/status WaitForData callers.
+The native C++17 cache harness compiles the actual production `Read` and `WaitForData` bodies, plus reset and terminal-source publication statements. A virtual scheduler exercises40s starvation against60/600s budgets, expiry, genuine/unknown-length EOF, source/premature-zero failure, final-write race, immediate/during-wait cancellation, nonHTTP behavior and reopen. The original six-case test had four RED failures returning false zero after10000ms. A separately added zero-size-read regression also failed before correction.
 
-## Issue lookup and status
+The curl harness compiles actual production cancel/reset/poll bodies with mocked curl dispatch but real POSIX select/threads. Cases include cancellation during real fd/no-fd polls (observed100ms join), poisoned/replaced state pointers, reset, and source lifecycle ordering. It is not a live-network test or a TSAN proof. The complete suite and real build/device results must be recorded by the deployment owner before claiming playback fixed.
 
-GitHub searches (including closed issues): `repo:xbmc/xbmc CircularCache`,
-`repo:xbmc/xbmc "WaitForData" "EOF"`, and
-`repo:Megarushing/kodi WaitForData`. The latter returned no entries. Upstream
-results included #29287 (open, cache duration sizing), #28889 (closed, seek past
-end), #17081 (closed, small-file caching), and #5708 (closed, double file cache).
-Titles do not establish a matching fix; no upstream patch was adopted.
+## Operational limits and rollback
 
-No production changes, FFmpeg/dependency changes, build, deployment or device
-settings changes. An ARM64 build of this regression-only commit would not fix the
-known failure, so none was started. Existing deployed rollback remains owned by
-the parent. Remove this test and README link to discard the regression artifact.
+With configured600, a failed/abandoned server can cause a long wait unless the user stops; Stop must be validated during the actual stalled read, not only after it recovers. Unknown-length EOF is valid; known-length truncation is terminal error. Socket/DNS/open-timeout behavior is not made universally interruptible by a read-loop fix.
+
+For an unexpected hang/regression, stop only the owned test, retain logs and reinstall the retained target-matching ARM64 rollback using the existing build/install workflow. Parent retained `~/tmp/kodi-http-deadline-20261029/rollback-484a66ac53-arm64.apk`, SHA256 `b57e6b905af2ed316c64a001c0097bf292a3f4944da4c98f748b18acebe9289b`. Source revert alone does not alter installed devices. HTTP patience can be returned to default20 in the living target's advancedsettings with a clean restart; that is a configuration fallback, not reversal of the code. No fleet rollout or bedroom change is authorised by the living-only trial.
+
+## Bounded issue lookup
+
+Searched upstream/fork including closed: `repo:xbmc/xbmc CircularCache`, `repo:xbmc/xbmc "WaitForData" "EOF"`, `repo:Megarushing/kodi WaitForData` (2026-10-29). The fork query returned no entries. Upstream included#29287 (open, cache duration sizing),#28889 (closed, seek past end),#17081 (closed, small-file caching),#5708 (closed, double file cache). None was adopted as a matching fix. These titles are not evidence of equivalence.

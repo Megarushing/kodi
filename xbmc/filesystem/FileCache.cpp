@@ -12,6 +12,7 @@
 #include "File.h"
 #include "ServiceBroker.h"
 #include "URL.h"
+#include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
 #include "threads/Thread.h"
@@ -130,6 +131,13 @@ bool CFileCache::Open(const CURL& url)
   Close();
 
   std::unique_lock lock(m_sync);
+
+  m_readAborted = false;
+  m_sourceReadError = false;
+  m_httpReadPatience = 0ms;
+  if (url.IsProtocol("http") || url.IsProtocol("https"))
+    m_httpReadPatience = std::chrono::seconds(std::max(
+        20, CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_curllowspeedtime));
 
   m_sourcePath = url.GetRedacted();
 
@@ -338,6 +346,7 @@ void CFileCache::Process()
       if (!sourceSeekFailed)
       {
         m_pCache->ClearEndOfInput();
+        m_sourceReadError = false;
         const bool bCompleteReset = m_pCache->Reset(m_seekPos);
         m_readPos = m_seekPos;
         m_writePos = m_pCache->CachedDataEndPos();
@@ -443,6 +452,8 @@ void CFileCache::Process()
           CLog::Log(LOGDEBUG, "CFileCache::{} - <{}> source read hit eof", __FUNCTION__,
                     m_sourcePath);
 
+        // Publish the failure before EOI so a drained HTTP reader cannot see a good EOF.
+        m_sourceReadError = iRead < 0 || (m_fileSize > 0 && m_writePos < m_fileSize);
         m_pCache->EndOfInput();
 
         if (!m_bStop && m_seekEvent.Wait() && !m_bStop)
@@ -542,11 +553,56 @@ ssize_t CFileCache::Read(void* lpBuf, size_t uiBufSize)
               m_sourcePath);
     return -1;
   }
-  int64_t iRc;
-
   if (uiBufSize > SSIZE_MAX)
     uiBufSize = SSIZE_MAX;
 
+  if (uiBufSize == 0)
+    return 0;
+
+  if (m_httpReadPatience > 0ms)
+  {
+    XbmcThreads::EndTime<> deadline(m_httpReadPatience);
+    while (true)
+    {
+      if (m_readAborted.load())
+        return -1;
+
+      const int rc = m_pCache->ReadFromCache(static_cast<char*>(lpBuf), uiBufSize);
+      if (rc > 0)
+      {
+        m_readPos += rc;
+        return rc;
+      }
+      if (rc != 0 && rc != CACHE_RC_WOULD_BLOCK)
+        return -1;
+      if (m_pCache->IsEndOfInput())
+      {
+        // The producer may have written its final bytes between our read and EOI check.
+        const int finalRead = m_pCache->ReadFromCache(static_cast<char*>(lpBuf), uiBufSize);
+        if (finalRead > 0)
+        {
+          m_readPos += finalRead;
+          return finalRead;
+        }
+        if (finalRead < 0 && finalRead != CACHE_RC_WOULD_BLOCK)
+          return -1;
+        return m_readAborted.load() || m_sourceReadError.load() ? -1 : 0;
+      }
+      if (deadline.IsTimePast())
+      {
+        CLog::Log(LOGWARNING, "CFileCache::Read - HTTP cache read patience expired ({} ms)",
+                  m_httpReadPatience.count());
+        return -1;
+      }
+
+      // WaitForData may return zero on a quiet, still-open source. That is not EOF.
+      const auto available = m_pCache->WaitForData(1, 100ms);
+      if (available < 0 && available != CACHE_RC_TIMEOUT)
+        return -1;
+    }
+  }
+
+  int64_t iRc;
 retry:
   // attempt to read
   iRc = m_pCache->ReadFromCache((char *)lpBuf, uiBufSize);
@@ -701,6 +757,9 @@ int64_t CFileCache::GetLength()
 
 void CFileCache::StopThread(bool bWait /*= true*/)
 {
+  // Cancel the source before joining: public CCurlFile::Cancel waits for Close.
+  if (m_httpReadPatience > 0ms)
+    IoControl(IOControl::CANCEL_READ, nullptr);
   m_bStop = true;
   //Process could be waiting for seekEvent
   m_seekEvent.Set();
@@ -717,6 +776,18 @@ const std::string CFileCache::GetProperty(XFILE::FileProperty type, const std::s
 
 int CFileCache::IoControl(IOControl request, void* param)
 {
+  if (request == IOControl::CANCEL_READ)
+  {
+    // Read holds m_sync while waiting. Never acquire it or join the producer here.
+    m_readAborted = true;
+    // Abort is terminal: wake the producer only after marking it stopped, otherwise
+    // the shared seek event can be mistaken for a new seek and reopen the source.
+    m_bStop = true;
+    m_source->IoControl(IOControl::CANCEL_READ, nullptr);
+    m_seekEvent.Set();
+    return 0;
+  }
+
   if (request == IOControl::CACHE_STATUS)
   {
     SCacheStatus* status = (SCacheStatus*)param;

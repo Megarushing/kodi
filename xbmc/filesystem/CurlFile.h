@@ -12,6 +12,7 @@
 #include "utils/HttpHeader.h"
 #include "utils/RingBuffer.h"
 
+#include <atomic>
 #include <map>
 #include <string>
 
@@ -112,6 +113,7 @@ namespace XFILE
           unsigned int m_overflowSize; // size of the overflow buffer
           int m_stillRunning; // Is background url fetch still in progress
           bool m_cancelled;
+          const std::atomic<bool>* m_readAbortRequested = nullptr;
           int64_t m_fileSize;
           int64_t m_filePos;
           bool m_bFirstLoop;
@@ -153,6 +155,8 @@ namespace XFILE
       std::string GetInfoString(int infoType);
 
     protected:
+      // Owned by this file, not by a replaceable seek state; outlives both states.
+      std::atomic<bool> m_readAbortRequested{false};
       CReadState* m_state;
       CReadState* m_oldState;
       unsigned int m_bufferSize;

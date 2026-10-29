@@ -119,6 +119,9 @@ public:
     unsigned int m_flags;
     CCriticalSection m_sync;
     std::chrono::milliseconds m_processWait{100ms};
+    std::atomic<bool> m_readAborted{false};
+    std::atomic<bool> m_sourceReadError{false};
+    std::chrono::milliseconds m_httpReadPatience{0ms};
   };
 
 }
