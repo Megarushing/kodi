@@ -471,6 +471,7 @@ void CCurlFile::Close()
 
 void CCurlFile::SetCommonOptions(CReadState* state, bool failOnError /* = true */)
 {
+  state->m_readAbortRequested = &m_readAbortRequested;
   CURL_HANDLE* h = state->m_easyHandle;
 
   g_curlInterface.easy_reset(h);
@@ -1044,6 +1045,7 @@ void CCurlFile::Cancel()
 
 void CCurlFile::Reset()
 {
+  m_readAbortRequested = false;
   m_state->m_cancelled = false;
 }
 
@@ -1074,6 +1076,7 @@ void CCurlFile::SetProxy(const std::string &type, const std::string &host,
 
 bool CCurlFile::Open(const CURL& url)
 {
+  m_readAbortRequested = false;
   m_opened = true;
   m_seekable = true;
 
@@ -1688,7 +1691,7 @@ int8_t CCurlFile::CReadState::FillBuffer(unsigned int want)
   // doesn't exceed required size already
   while (m_buffer.getMaxReadSize() < want && m_buffer.getMaxWriteSize() > 0 )
   {
-    if (m_cancelled)
+    if (m_cancelled || (m_readAbortRequested && m_readAbortRequested->load()))
       return FILLBUFFER_NO_DATA;
 
     /* if there is data in overflow buffer, try to use that first */
@@ -1839,6 +1842,9 @@ int8_t CCurlFile::CReadState::FillBuffer(unsigned int want)
 
         do
         {
+          if (m_cancelled || (m_readAbortRequested && m_readAbortRequested->load()))
+            return FILLBUFFER_NO_DATA;
+
           /* On success the value of maxfd is guaranteed to be >= -1. We call
            * select(maxfd + 1, ...); specially in case of (maxfd == -1) there are
            * no fds ready yet so we call select(0, ...) --or Sleep() on Windows--
@@ -1862,7 +1868,8 @@ int8_t CCurlFile::CReadState::FillBuffer(unsigned int want)
           }
           else
           {
-            unsigned int time_left = endTime.GetTimeLeft().count();
+            // Bound read-abort latency even when curl requests a long poll timeout.
+            unsigned int time_left = std::min<unsigned int>(endTime.GetTimeLeft().count(), 100);
             struct timeval wait = { (int)time_left / 1000, ((int)time_left % 1000) * 1000 };
             rc = select(maxfd + 1, &fdread, &fdwrite, &fdexcep, &wait);
           }
@@ -2085,6 +2092,13 @@ bool CCurlFile::GetCookies(const CURL &url, std::string &cookies)
 
 int CCurlFile::IoControl(EIoControl request, void* param)
 {
+  if (request == IOCTRL_CANCEL_READ)
+  {
+    // Do not touch m_state/m_oldState: Seek may replace or delete them concurrently.
+    m_readAbortRequested = true;
+    return 0;
+  }
+
   if (request == IOCTRL_SEEK_POSSIBLE)
     return m_seekable ? 1 : 0;
 

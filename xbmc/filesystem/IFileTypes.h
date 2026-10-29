@@ -74,6 +74,7 @@ typedef enum {
   IOCTRL_CACHE_SETRATE = 4,  /**< unsigned int with speed limit for caching in bytes per second */
   IOCTRL_SET_CACHE     = 8,  /**< CFileCache */
   IOCTRL_SET_RETRY     = 16, /**< Enable/disable retry within the protocol handler (if supported) */
+  IOCTRL_CANCEL_READ   = 32, /**< Internal, nonblocking idempotent read-abort request; no parameter. */
 } EIoControl;
 
 enum CURLOPTIONTYPE

@@ -10,9 +10,11 @@ It installs next to the Play Store Kodi and does not replace it.
 
 ## HTTP cache starvation investigation
 
-[Runnable RED regression and cancellation blocker](tools/mega/HTTP_CACHE_STARVATION.md).
-This is not a production fix; the prior HTTP demux deadline change alone does not
-prevent false EOF in the circular-cache starvation path.
+[HTTP false-EOF fix, cancellation policy and regressions](tools/mega/HTTP_CACHE_STARVATION.md).
+HTTP cache reads now distinguish temporary starvation from real EOF and honour
+configured patience with nonblocking cancellation. Host regression/build/live
+acceptance status is tracked in that document; the demux deadline change alone
+was insufficient. Living-room Shield is the only authorised deployment target.
 
 ## Local patches
 
