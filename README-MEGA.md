@@ -49,6 +49,36 @@ It installs next to the Play Store Kodi and does not replace it.
 | `xbmc/platform/linux/PlatformWebOS.cpp` (`InitStageTwo`) | Core dumps always off (upstream master does the same) | The log-level check left them on: a crash at quit wrote a ~470 MB `core.<pid>` into the app dir and filled the bedroom LG (2026-10-19). |
 | Review fixes 2026-10-18 (`d0699505d8`, `867b976763`, `dd0f991d95`) | Far-off rows/window leave: `dynamic_cast` (EPG grid is no `CGUIBaseContainer`), children with window/visibility animations keep processing; memory-guard unload skips Python/add-on windows and the TV/radio guides; `CThread::Create` rethrows after its retries (object left stoppable); DV p8 fallback only for compat id 1 + BT.709; StallWatch joined before logging teardown; `m_runActive` set before the run thread starts; no logging inside the new_handler; AudioTrack direct-buffer JNI refs; Splash marker only after every file copied | Each one a crash, hang or wrong behaviour in the earlier local patches, confirmed by source tracing (Codex + own). Installed and smoke-tested on the bedroom Shield 2026-10-18 (start, tabs, SMB play, clean quit without tombstone). Not yet in the webOS build. |
 
+## HTTP demux deadline candidate
+
+LOCAL PATCH (megarushing): `DVDDemuxFFmpeg.cpp` uses `DemuxReadDeadline.h` to
+allow `max(20, network/curllowspeedtime)` seconds per `av_read_frame` **only** for
+`DVDSTREAM_TYPE_FILE` with an input `GetURL()` of HTTP/HTTPS. `GetURL()` reads
+`m_item.GetDynURL()`; `CDVDInputStreamFile::Open()` opens that same dynamic path,
+not the plugin/history identity. SMB, local files, direct FFmpeg inputs, the
+30-second open deadline, EOF/error classification and explicit `Abort()` expiry
+are unchanged. No FFmpeg or dependency changes.
+
+Experimental until a controlled old-20s versus configured-600s live comparison:
+the standalone FFmpeg 6.0.1 custom-AVIO probe demonstrates the mechanism, not
+that the observed live early EOF was AVERROR_EXIT. With a 20.2-second delayed
+read, budget 20 produced EXIT after 5 packets/10,240 payload bytes; budget 600
+preserved all 517 packets/1,058,400 bytes and genuine EOF, like the control.
+Explicit cancellation still returned EXIT immediately with budget 600.
+
+Run manually: `python3 tools/mega/tests/test_http_demux_deadline.py -v` (compiled
+pure production policy; first run against the old read expression failed
+`configured=600 expected=600 actual=20`). Defaults retain 20 seconds; increased
+HTTP patience can delay failure of a stalled source, not extend cancel waits
+beyond the existing input cancellation implementation. No new retries or AVIO
+error clearing. Debug logging emits `[MegaDemuxRead]` on at most eight negative
+reads per demuxer lifetime: numeric/string result, waited milliseconds, deadline,
+expiry/aborted state and input EOF; no URLs. `expired`/`aborted` are snapshots,
+not independent explicit-cancel reasons (VFS Abort expires the same timer).
+Enable debug logging for the live comparison. Roll back by reinstalling the
+retained pre-candidate ARM64 APK; source revert alone does not change devices.
+Lowering `curllowspeedtime` to its default 20 disables only the extended patience.
+
 ## Tags
 
 - `mega-v1-imagefix` = the first Kodi Mega (#29091 image fix + build tooling), before the 2026-10-18 crash-fixing night.

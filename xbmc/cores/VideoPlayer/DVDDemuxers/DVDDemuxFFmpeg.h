@@ -167,6 +167,7 @@ protected:
   int m_seekStream;
 
   XbmcThreads::EndTime<> m_timeout;
+  unsigned int m_negativeReadDiagnostics{0}; // LOCAL PATCH (megarushing): bounded, URL-free diagnostics
 
   // Due to limitations of ffmpeg, we only can detect a program change
   // with a packet. This struct saves the packet for the next read and
