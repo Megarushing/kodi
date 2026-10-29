@@ -8,6 +8,12 @@ It installs next to the Play Store Kodi and does not replace it.
   (`/sdcard/Android/data/org.xbmc.kodimega/files/.kodi`).
 - Not an upstream PR. Every local change is listed below and has a `LOCAL PATCH (megarushing)` comment.
 
+## HTTP cache starvation investigation
+
+[Runnable RED regression and cancellation blocker](tools/mega/HTTP_CACHE_STARVATION.md).
+This is not a production fix; the prior HTTP demux deadline change alone does not
+prevent false EOF in the circular-cache starvation path.
+
 ## Local patches
 
 | File | Change | Why |
