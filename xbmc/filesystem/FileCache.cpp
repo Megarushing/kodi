@@ -14,6 +14,7 @@
 #include "settings/AdvancedSettings.h"
 #include "settings/Settings.h"
 #include "settings/SettingsComponent.h"
+#include "threads/SystemClock.h"
 #include "threads/Thread.h"
 #include "utils/log.h"
 
