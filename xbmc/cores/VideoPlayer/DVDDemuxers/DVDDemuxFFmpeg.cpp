@@ -9,6 +9,7 @@
 #include "DVDDemuxFFmpeg.h"
 
 #include "DVDDemuxUtils.h"
+#include "DemuxReadDeadline.h"
 #include "DVDInputStreams/DVDInputStream.h"
 #ifdef HAVE_LIBBLURAY
 #include "DVDInputStreams/DVDInputStreamBluray.h"
@@ -1045,9 +1046,29 @@ DemuxPacket* CDVDDemuxFFmpeg::ReadInternal(bool keep)
         m_pkt.pkt.size = 0;
         m_pkt.pkt.data = NULL;
 
-        // timeout reads after 100ms
-        m_timeout.Set(20s);
+        // LOCAL PATCH (megarushing): only Kodi VFS HTTP(S), not FFmpeg protocols.
+        const auto url = m_pInput->GetURL();
+        const bool vfsHttp = m_pInput->IsStreamType(DVDSTREAM_TYPE_FILE) &&
+                             (url.IsProtocol("http") || url.IsProtocol("https"));
+        const auto deadline = DemuxReadDeadline(
+            vfsHttp, CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_curllowspeedtime);
+        const auto started = std::chrono::steady_clock::now();
+        m_timeout.Set(deadline);
         m_pkt.result = av_read_frame(m_pFormatContext, &m_pkt.pkt);
+        // Snapshot before clearing the read deadline. Abort() still expires it immediately.
+        if (m_pkt.result < 0 && m_negativeReadDiagnostics < 8)
+        {
+          ++m_negativeReadDiagnostics;
+          char error[AV_ERROR_MAX_STRING_SIZE] = {};
+          av_strerror(m_pkt.result, error, sizeof(error));
+          CLog::Log(LOGDEBUG,
+                    "[MegaDemuxRead] result={} error={} waited_ms={} deadline_s={} "
+                    "expired={} aborted={} input_eof={} vfs_http={}",
+                    m_pkt.result, error,
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - started).count(),
+                    deadline.count(), m_timeout.IsTimePast(), Aborted(), m_pInput->IsEOF(), vfsHttp);
+        }
         m_timeout.SetInfinite();
       }
 
