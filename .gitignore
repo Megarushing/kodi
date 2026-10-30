@@ -269,3 +269,6 @@ exclude_dll.txt
 
 # clangd index
 .cache/
+
+# Kodi Mega: per-worktree build output (depends, build, tarballs, symbols)
+/dist/
