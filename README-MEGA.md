@@ -3,7 +3,7 @@
 Megarushing's personal Kodi fork, for the bedroom NVIDIA Shield (Android 11, 32-bit userspace) and the LG webOS TVs (living room first).
 It installs next to the Play Store Kodi and does not replace it.
 
-- Base: upstream tag `21.3-Omega` (merged 2026-10-18; was 21.2-Omega). Branch: `mega`. Upstream updates: `git fetch upstream tag <tag>` + `git merge`.
+- Base: upstream tag `21.3-Omega` (merged 2026-10-18; was 21.2-Omega) + upstream `Omega` branch to `f8815ee40f` (merged 2026-10-30). Branch: `mega`. Upstream updates: `git fetch upstream tag <tag>` + `git merge`.
 - Package: `org.xbmc.kodimega`, launcher label "Kodi Mega". `APP_NAME` stays `Kodi`, so the data folder is still `.kodi`
   (`/sdcard/Android/data/org.xbmc.kodimega/files/.kodi`).
 - Not an upstream PR. Every local change is listed below and has a `LOCAL PATCH (megarushing)` comment.
