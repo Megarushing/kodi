@@ -1549,6 +1549,7 @@ void CApplication::OnApplicationMessage(ThreadMessage* pMsg)
 
   case TMSG_RESUMEAPP:
   {
+    m_ServiceManager->GetNetwork().NetworkMessage(CNetworkBase::SERVICES_UP, 0);
     CGUIComponent* gui = CServiceBroker::GetGUI();
     if (gui)
       gui->GetWindowManager().MarkDirty();
