@@ -7,8 +7,8 @@ set -euo pipefail
 
 HOST=arm-webos-linux-gnueabi                                 # 32-bit ARM target
 TC_RELEASE=webos-b17b4cc                                     # openlgtv/buildroot-nc4 release: GCC 12.2 (2026.08 = GCC 16, too new for Omega)
-WORK=$HOME/kodi-mega-webos                                   # toolchain, tarballs, depends prefix, cmake build dir
-TC=$WORK/tc2024/arm-webos-linux-gnueabi_sdk-buildroot        # unpacked toolchain
+WORK=${WORK:-$HOME/kodi-mega-webos}                          # tarballs, depends prefix, cmake build dir (override: one per Kodi major)
+TC=$HOME/kodi-mega-webos/tc2024/arm-webos-linux-gnueabi_sdk-buildroot  # unpacked toolchain, shared by every WORK
 CMAKE_ARGS='-DCORE_PLATFORM_NAME=webos -DENABLE_DBUS=OFF -DENABLE_CEC=OFF -DENABLE_PIPEWIRE=OFF -DHAVE_LINUX_UDMABUF=OFF'
 JOBS=$(getconf _NPROCESSORS_ONLN)
 export PATH="$HOME/.npm-global/bin:$PATH"                    # ares-package (npm i -g @webos-tools/cli)
@@ -21,7 +21,7 @@ toolchain() {
   [ -x "$TC/bin/$HOST-gcc" ] && return 0
   curl -fL -o "$WORK/dl/toolchain-$TC_RELEASE.tar.gz" \
     "https://github.com/openlgtv/buildroot-nc4/releases/download/$TC_RELEASE/arm-webos-linux-gnueabi_sdk-buildroot.tar.gz"
-  mkdir -p "$WORK/tc2024" && tar xzf "$WORK/dl/toolchain-$TC_RELEASE.tar.gz" -C "$WORK/tc2024"
+  mkdir -p "$(dirname "$TC")" && tar xzf "$WORK/dl/toolchain-$TC_RELEASE.tar.gz" -C "$(dirname "$TC")"
   (cd "$TC" && ./relocate-sdk.sh)
 }
 
