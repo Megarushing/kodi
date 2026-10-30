@@ -14,7 +14,7 @@ case $MEGA_ABI in
   *) echo "unknown ABI $MEGA_ABI" >&2; exit 2 ;;
 esac
 SDK=$HOME/Android/Sdk                                        # sdkmanager root
-NDK=$SDK/ndk/21.4.7075529                                    # NDK version README.Android.md asks for
+NDK=$SDK/ndk/28.2.13676358                                  # NDK version README.Android.md asks for (r28c since Kodi 22 Piers)
 WORK=${WORK:-$WORK_DEFAULT}                                  # tarballs, depends prefix, cmake build dir
 SIGNING=$HOME/.config/kodimega/signing.properties            # keystore path + passwords, never in git
 JOBS=$(getconf _NPROCESSORS_ONLN)
