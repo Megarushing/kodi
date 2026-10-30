@@ -88,6 +88,10 @@ public:
  std::atomic<bool>& m_readAborted=cancelled;
  std::atomic<bool> m_sourceReadError{false};
  std::chrono::milliseconds m_httpReadPatience{60000};
+ // Piers (ad03fcf1d2): Read reports a failed source seek before reading.
+ bool m_sourcePositionValid=true;
+ int m_seekError=0;
+ static void SetLastError(int) {}
  void Init(bool http, int patience);
  void PublishTerminal(ssize_t iRead, int64_t m_fileSize, int64_t m_writePos);
  ssize_t Read(void* lpBuf, size_t uiBufSize);

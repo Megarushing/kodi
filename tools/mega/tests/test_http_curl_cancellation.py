@@ -25,7 +25,7 @@ HARNESS = r"""
 using namespace std::chrono_literals;
 constexpr int FILLBUFFER_OK=1, FILLBUFFER_NO_DATA=0, FILLBUFFER_FAIL=-1;
 constexpr int LOGERROR=1, LOGWARNING=2, LOGDEBUG=3, SOCKET_ERROR=-1;
-enum EIoControl { IOCTRL_CANCEL_READ, IOCTRL_SEEK_POSSIBLE, IOCTRL_SET_RETRY, IOCTRL_CACHE_STATUS, IOCTRL_CACHE_SETRATE };
+enum class IOControl { CANCEL_READ, SEEK_POSSIBLE, SET_RETRY, CACHE_STATUS, CACHE_SETRATE }; // enum class since Piers
 struct CLog { template<class... T> static void Log(T...) {} };
 namespace fmt { template<class T> auto ptr(T* p) { return p; } }
 namespace XbmcThreads { template<class T=void> struct EndTime {
@@ -82,7 +82,7 @@ public:
  CReadState* m_state=nullptr;
  CReadState* m_oldState=nullptr;
  bool m_seekable=true,m_allowRetry=false;
- int IoControl(EIoControl request,void* param);
+ int IoControl(IOControl request,void* param);
  void Reset();
  void Bind(CReadState* state);
 };
@@ -94,14 +94,14 @@ int main(int argc,char** argv) {
   file.m_state=reinterpret_cast<CCurlFile::CReadState*>(1);
   file.m_oldState=reinterpret_cast<CCurlFile::CReadState*>(2);
   auto start=std::chrono::steady_clock::now();
-  for(int i=0;i<10000;i++) if(file.IoControl(IOCTRL_CANCEL_READ,nullptr)!=0) return 1;
+  for(int i=0;i<10000;i++) if(file.IoControl(IOControl::CANCEL_READ,nullptr)!=0) return 1;
   auto elapsed=std::chrono::steady_clock::now()-start;
   std::cout<<"10000 cancel ioctls us="<<std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count()<<"\n";
   return file.m_readAbortRequested && elapsed<500ms ? 0:1;
  }
  CCurlFile::CReadState state; file.m_state=&state; file.Bind(&state);
  if(test=="reset") {
-  file.IoControl(IOCTRL_CANCEL_READ,nullptr);state.m_cancelled=true;file.Reset();
+  file.IoControl(IOControl::CANCEL_READ,nullptr);state.m_cancelled=true;file.Reset();
   return !file.m_readAbortRequested && !state.m_cancelled ? 0:1;
  }
  if(test=="replacement") {
@@ -111,7 +111,7 @@ int main(int argc,char** argv) {
    if(fresh->m_readAbortRequested!=&file.m_readAbortRequested) std::abort();
    delete fresh;
   }});
-  for(int i=0;i<10000;i++) file.IoControl(IOCTRL_CANCEL_READ,nullptr);
+  for(int i=0;i<10000;i++) file.IoControl(IOControl::CANCEL_READ,nullptr);
   replace.join();return file.m_readAbortRequested ? 0:1;
  }
  int sockets[2];
@@ -120,7 +120,7 @@ int main(int argc,char** argv) {
  std::thread reader([&]{result=state.FillBuffer(1);});
  while(!inSelect.load()) std::this_thread::yield();
  auto start=std::chrono::steady_clock::now();
- file.IoControl(IOCTRL_CANCEL_READ,nullptr);
+ file.IoControl(IOControl::CANCEL_READ,nullptr);
  reader.join();
  auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-start).count();
  if(socketFd>=0) {close(sockets[0]);close(sockets[1]);}
@@ -143,6 +143,7 @@ class HttpCurlCancellation(unittest.TestCase):
             start=text.index(sig)
             # Column-zero close avoids counting both #ifdef select-loop endings.
             cpp += text[start:text.index("\n}",start)+2]+"\n"
+        cpp = cpp.replace("int CCurlFile::IoControl(", function("xbmc/filesystem/CurlFile.cpp","static bool IsTransientCurlError(")+"\n\nint CCurlFile::IoControl(",1)
         common = function("xbmc/filesystem/CurlFile.cpp","void CCurlFile::SetCommonOptions(")
         bind = common[common.index("  state->m_readAbortRequested"):common.index("  CURL_HANDLE* h")]
         cpp += "\n#undef select\nvoid CCurlFile::Bind(CReadState* state) {"+bind+"}\n"+MAIN
@@ -166,15 +167,15 @@ class HttpCurlCancellation(unittest.TestCase):
 
     def test_source_lifecycle_contract(self):
         cache=function("xbmc/filesystem/FileCache.cpp","int CFileCache::IoControl(")
-        cancel=cache[:cache.index("  if (request == IOCTRL_CACHE_STATUS)")]
+        cancel=cache[:cache.index("  if (request == IOControl::CACHE_STATUS)")]
         self.assertNotIn("lock(m_sync)",cancel)
         self.assertNotIn("StopThread(",cancel)
-        self.assertIn("m_source.IoControl(IOCTRL_CANCEL_READ, nullptr)",cancel)
+        self.assertIn("m_source->IoControl(IOControl::CANCEL_READ, nullptr)",cancel)
         self.assertLess(cancel.index("m_bStop = true"),cancel.index("m_seekEvent.Set()"))
         stop=function("xbmc/filesystem/FileCache.cpp","void CFileCache::StopThread(")
-        self.assertLess(stop.index("IoControl(IOCTRL_CANCEL_READ"),stop.index("CThread::StopThread("))
+        self.assertLess(stop.index("IoControl(IOControl::CANCEL_READ"),stop.index("CThread::StopThread("))
         close=function("xbmc/filesystem/FileCache.cpp","void CFileCache::Close(")
-        self.assertLess(close.index("StopThread();"),close.index("m_source.Close();"))
+        self.assertLess(close.index("StopThread();"),close.index("m_source->Close();"))
         header=(ROOT/"xbmc/filesystem/CurlFile.h").read_text()
         self.assertLess(header.index("std::atomic<bool> m_readAbortRequested{false}"),header.index("CReadState* m_state;"))
         reopen=function("xbmc/filesystem/CurlFile.cpp","bool CCurlFile::ReOpen(")
@@ -182,7 +183,7 @@ class HttpCurlCancellation(unittest.TestCase):
         opening=function("xbmc/filesystem/CurlFile.cpp","bool CCurlFile::Open(")
         self.assertLess(opening.index("m_readAbortRequested = false"),opening.index("SetCommonOptions("))
         abort=function("xbmc/cores/VideoPlayer/DVDInputStreams/DVDInputStreamFile.cpp","void CDVDInputStreamFile::Abort(")
-        self.assertIn("m_pFile->IoControl(IOCTRL_CANCEL_READ, nullptr)",abort)
+        self.assertIn("m_pFile->IoControl(IOControl::CANCEL_READ, nullptr)",abort)
         player=function("xbmc/cores/VideoPlayer/VideoPlayer.cpp","bool CVideoPlayer::CloseFile(")
         self.assertLess(player.index("m_pInputStream->Abort();"),player.index("StopThread();"))
 

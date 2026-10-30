@@ -54,9 +54,13 @@ struct CDirectory {
     return path == "source/" ? sourceExists : folderExists;
   }
 };
-static void GetSourcePath(const std::string&, std::string& source, SScanSettings&) {
+// Piers: GetSourcePath(path, source) reports whether a source is configured; GetPathId
+// looks up a delete decision for that source (none in these fixtures).
+static bool GetSourcePath(const std::string&, std::string& source) {
   source = hasSource ? "source/" : "";
+  return hasSource;
 }
+static int GetPathId(const std::string&) { return 1; }
 int main(int argc, char** argv) {
   if (argc != 8) return 2;
   folderExists = std::atoi(argv[1]);
@@ -76,10 +80,12 @@ class VideoLibraryCleanupTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         source = (ROOT / "xbmc/video/VideoDatabase.cpp").read_text()
-        start = source.index('"{}: Cleaning paths that don\'t exist and have content set..."')
-        end = source.index('"{}: Cleaning tvshow table"', start)
+        start = source.index('"Cleaning paths that don\'t exist and have content set..."')
+        end = source.index('      m_pDS2->close();', start) + len('      m_pDS2->close();')
         block = source[start:end]
-        assignment = re.search(r'sql = ((?:"(?:\\.|[^"\\])*"\s*)+);', block)
+        # Piers interleaves // comments between the SQL string pieces
+        uncommented = re.sub(r'^\s*//.*\n', '', block, flags=re.M)
+        assignment = re.search(r'sql = ((?:"(?:\\.|[^"\\])*"\s*)+);', uncommented)
         assert assignment is not None, "Cleanup candidate SQL not found"
         cls.candidate_sql = ''.join(json.loads(s) for s in re.findall(r'"(?:\\.|[^"\\])*"', assignment[1]))
         a = block.index('      std::string strIds;')
@@ -108,6 +114,8 @@ class VideoLibraryCleanupTest(unittest.TestCase):
                               strContent TEXT, strSettings TEXT, strHash TEXT, exclude INTEGER);
             CREATE TABLE tvshow(idShow INTEGER);
             CREATE TABLE tvshowlinkpath(idShow INTEGER, idPath INTEGER);
+            CREATE TABLE files(idFile INTEGER, idPath INTEGER);
+            CREATE TABLE episode(idEpisode INTEGER, idShow INTEGER);
             INSERT INTO tvshow VALUES(10);
         """)
         db.execute("INSERT INTO path VALUES(145,'show/',92,NULL,NULL,?,NULL)", (hash_value,))
@@ -139,8 +147,9 @@ class VideoLibraryCleanupTest(unittest.TestCase):
     def test_unavailable_source_preserves_show(self):
         self.assertEqual(self.clean(source=False), (1, []))
 
-    def test_unknown_source_preserves_show(self):
-        self.assertEqual(self.clean(configured=False), (1, []))
+    def test_unknown_source_removes_show(self):
+        # Piers: a missing folder outside any configured source is gone (upstream policy, kept).
+        self.assertEqual(self.clean(configured=False), (0, [145]))
 
     def test_offline_hashed_show_is_also_preserved(self):
         self.assertEqual(self.clean(source=False, hash_value="old-hash"), (1, []))

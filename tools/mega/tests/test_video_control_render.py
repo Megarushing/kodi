@@ -18,7 +18,9 @@ STUBS = r'''
 #include <cstdio>
 #include <string>
 #include <type_traits>
-namespace UTILS { namespace COLOR { using Color = uint32_t; } }
+namespace KODI { namespace UTILS { namespace COLOR { using Color = uint32_t; } } }
+// Piers: dual-pass GUI rendering. The single-pass order keeps the Omega behaviour (Clear).
+enum RENDER_ORDER { RENDER_ORDER_ALL_BACK_TO_FRONT, RENDER_ORDER_BACK_TO_FRONT, RENDER_ORDER_FRONT_TO_BACK };
 struct CRect { void Intersect(const CRect&) {} };
 struct TransformMatrix {};
 struct Graphics {
@@ -30,7 +32,9 @@ struct Graphics {
   void SetScissors(const CRect&) { ++scissors; }
   void Clear(int) { ++clears; }
   void RemoveTransform() { --transforms; }
+  RENDER_ORDER GetRenderOrder() { return RENDER_ORDER_ALL_BACK_TO_FRONT; }
 } graphics;
+struct CGUITexture { static void DrawQuad(const CRect&, uint32_t, void*, void*, float, bool) {} };
 struct CApplicationPlayer {
   bool video=true, surface=true, paused=false;
   int guiCalls=0, nonGuiCalls=0, renderTransform=-1;

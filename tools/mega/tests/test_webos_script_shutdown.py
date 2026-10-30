@@ -27,8 +27,8 @@ constexpr auto SCRIPT_STOP_TIMEOUT = 5s;
 constexpr auto SCRIPT_STOP_GRACE = 1s;
 constexpr int LOGERROR=1, LOGWARNING=2, LOGDEBUG=3, InvokerStateStopping=2, InvokerStateExecutionDone=3, InvokerStateFailed=9;
 constexpr auto PYTHON_SCRIPT_TIMEOUT=5000ms;
-struct { bool m_bStop=false; } g_application;
-struct CLog { template<class... T> static void Log(T&&...) {} };
+struct { bool m_bStop=false; bool IsStopping() const { return m_bStop; } } g_application;
+struct CLog { template<class... T> static void Log(T&&...) {} template<class... T> static void LogF(T&&...) {} };
 namespace XbmcThreads {
 template<class T=void> struct EndTime {
   template<class U> explicit EndTime(U) {}
@@ -85,6 +85,10 @@ PyThreadState* PyThreadState_Next(PyThreadState*) { return nullptr; }
 void PyThreadState_Swap(PyThreadState*) {}
 void PyEval_RestoreThread(PyThreadState*) {}
 void PyEval_ReleaseThread(PyThreadState*) {}
+// Piers' stop() takes its own thread state for the async exception
+PyThreadState* PyThreadState_New(PyInterpreterState*) { return &fakeState; }
+void PyThreadState_Clear(PyThreadState*) {}
+void PyThreadState_DeleteCurrent() {}
 static PyObject exception=1;
 static PyObject* PyExc_SystemExit=&exception;
 static int injections=0;
@@ -114,6 +118,7 @@ void Py_Finalize() { ++finalized; }
 #define LOCK_AND_COPY(type,dest,src) if (!m_bInitialized) return; std::unique_lock<PyList> lock(src); type dest; dest=src
 struct XBPython {
   bool m_bInitialized=true, m_skipFinalize=false;
+  PyThreadState* m_mainThreadState=&fakeState; // Piers
   int m_iDllScriptCounter=0;
   CCriticalSection m_critSection;
   PyList m_vecPyList;
@@ -192,7 +197,7 @@ class WebOSShutdownTest(unittest.TestCase):
         compiler = shutil.which('c++')
         if not compiler:
             raise RuntimeError('C++17 compiler required')
-        subprocess.run([compiler, '-std=c++17', '-DTARGET_WEBOS',
+        subprocess.run([compiler, '-std=c++20', '-DTARGET_WEBOS',  # Piers code uses std::ranges
                         '-DPY_VERSION_HEX=0x030B0000', str(source), '-o', str(cls.binary)], check=True)
 
     @classmethod

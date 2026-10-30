@@ -17,7 +17,7 @@ STUBS = r'''
 #include <vector>
 using namespace std::chrono_literals;
 static std::string mode;
-static int waits=0, stops=0, starts=0, properties=0, messages=0;
+static int waits=0, stops=0, starts=0, properties=0, messages=0, resets=0;
 struct { bool m_bStop=false; } g_application;
 struct Event {
  bool Wait(std::chrono::milliseconds) {
@@ -43,15 +43,21 @@ struct CScriptInvocationManager {
 struct CGUIDialogProgress { bool WaitOnEvent(Event&) { return true; } };
 struct CGUIDialogBusy { static bool WaitOnEvent(Event&,int) { return true; } };
 struct CRunningScriptObserver { CRunningScriptObserver(int,Event&) {} void Abort() {} };
-constexpr int WINDOW_DIALOG_PROGRESS=1,GUI_MSG_NOTIFY_ALL=2,GUI_MSG_WEATHER_FETCHED=3,LOGINFO=4,LOGERROR=5,LOGDEBUG=6;
+constexpr int WINDOW_DIALOG_PROGRESS=1,GUI_MSG_NOTIFY_ALL=2,GUI_MSG_WEATHER_FETCHED=3,LOGINFO=4,LOGERROR=5,LOGDEBUG=6,
+ GUI_MSG_WEATHER_RESET=7,WINDOW_INVALID=8;
 struct CGUIMessage { template<class... T> CGUIMessage(T&&...) {} };
 struct WindowManager {
  bool IsModalDialogTopmost(int) { return false; }
+ int GetTopmostModalDialog(bool) { return 0; } // Piers
  template<class T> T* GetWindow(int) { static T t; return &t; }
  void SendThreadMessage(CGUIMessage&) { ++messages; }
 };
 struct GUI { WindowManager& GetWindowManager() { static WindowManager w; return w; } };
-struct Messenger { bool IsProcessThread() { return false; } };
+struct Messenger {
+ bool IsProcessThread() { return false; }
+ // Piers: the weather job clears add-on window properties before each download
+ void SendGUIMessage(CGUIMessage&,int,bool) { ++resets; }
+};
 struct Network { bool IsAvailable() { return true; } };
 namespace ADDON {
 struct Addon { std::string LibPath() { return "weather.py"; } };
@@ -72,6 +78,10 @@ struct CServiceBroker {
  static AddonMgr& GetAddonMgr() { static AddonMgr m; return m; }
  static SettingsComponent* GetSettingsComponent() { static SettingsComponent s; return &s; }
 };
+struct CDateTime {
+ static CDateTime GetCurrentDateTime() { return {}; }
+ std::string GetAsLocalizedDateTime(bool,bool) const { return ""; }
+};
 struct CLog { template<class... T> static void Log(T&&...) {} };
 namespace KODI::TIME {
 void Sleep(std::chrono::milliseconds) {
@@ -88,6 +98,8 @@ struct CScriptRunner {
 struct CWeatherJob {
  int m_location=1;
  void SetFromProperties() { ++properties; }
+ void SetFromPropertiesV2() {}
+ struct { std::string lastUpdateTime; } m_info;
  bool DoWork();
 };
 '''
@@ -106,10 +118,11 @@ int main(int argc,char** argv) {
  } else {
    CWeatherJob job; bool ok=job.DoWork();
    if (mode=="weather-normal") {
-     if (!ok || properties!=1 || messages!=1 || starts!=1) throw std::runtime_error("normal weather completion changed");
+     // Piers publishes through SetFromProperties*/m_info, no WEATHER_FETCHED thread message from DoWork
+     if (!ok || properties!=1 || starts!=1 || resets!=1) throw std::runtime_error("normal weather completion changed");
    } else {
      if (ok || properties || messages) throw std::runtime_error("cancelled weather published partial result");
-     if (mode=="weather-initial" && starts) throw std::runtime_error("weather script launched during exit");
+     if (mode=="weather-initial" && (starts || resets)) throw std::runtime_error("weather script launched during exit");
    }
  }
 }
