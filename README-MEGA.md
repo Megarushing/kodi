@@ -103,13 +103,20 @@ Needs: apt packages from `docs/README.Android.md` §2, JDK 17+, Android SDK at `
 Signing key: `~/.config/kodimega/signing.properties` + `kodimega.keystore` (not in git; master copy in 1Password).
 Losing the key means the installed app can never be updated in place.
 
+Folders: `~/personal/kodi` is source only, never build in it. Kodi's depends setup is written inside the
+source tree and holds one target, so each device type has its own git worktree under `~/kodi-mega-builds/`
+(`android32`, `android64`, `webos`), building into its own `dist/` (git-ignored). Symbols and the webOS
+toolchain live beside them (`symbols/<device>/<commit>/`, `toolchains/`), outside `dist/`.
+Never `git clean -x` a build worktree: it deletes `dist/` and the depends setup (hours to rebuild).
+
 ```sh
-tmux new -s kodimega 'tools/mega/build-android.sh all 2>&1 | tee ~/kodi-mega-build.log'
+cd ~/kodi-mega-builds/android32 && git checkout --detach origin/mega   # android64: ABI=arm64-v8a
+tmux new -s kodimega 'tools/mega/build-android.sh all 2>&1 | tee dist/build.log'
 # steps can run alone: depends | kodi | apk
 ```
 
-Output: the signed APK in the repo root (`kodiapp-armeabi-v7a-release.apk`), and the unstripped
-`libkodi.so` (with debug info) in `~/kodi-mega-build/symbols/<commit>/`. It is a release build on purpose:
+Output: the signed APK in the worktree root (`kodiapp-armeabi-v7a-release.apk`), and the unstripped
+`libkodi.so` (with debug info) in `~/kodi-mega-builds/symbols/android32/<commit>/`. It is a release build on purpose:
 a debug build uses more memory and changes the memory crashes this fork exists to fix.
 
 First full build on MegaServer (4 cores, 2026-10-17): about 1 h 50 min. Later builds only recompile what changed.
@@ -117,12 +124,13 @@ First full build on MegaServer (4 cores, 2026-10-17): about 1 h 50 min. Later bu
 ## Build for LG webOS (MegaServer)
 
 ```sh
-tmux new -s kodiwebos 'tools/mega/build-webos.sh all 2>&1 | tee ~/kodi-mega-webos/logs/build.log'
+cd ~/kodi-mega-builds/webos && git checkout --detach origin/mega
+tmux new -s kodiwebos 'tools/mega/build-webos.sh all 2>&1 | tee dist/build.log'
 # steps: toolchain | depends | kodi | ipk
 ```
 
 - Toolchain: openlgtv/buildroot-nc4 release `webos-b17b4cc` (GCC 12.2, glibc 2.12 sysroot, runs on webOS 6+). The 2026.08 release (GCC 16) is too new for this Omega code.
-- Packaging needs `ares-package` (`npm i -g @webos-tools/cli`). Output: `~/kodi-mega-webos/build/org.xbmc.kodimega_<ver>_arm.ipk` (~74 MB, stripped); the unstripped `kodi-webos` (debug info) is archived to `~/kodi-mega-webos/symbols/<commit>/` for crash reading (toolchain `arm-webos-linux-gnueabi-addr2line`).
+- Packaging needs `ares-package` (`npm i -g @webos-tools/cli`). Output: `~/kodi-mega-builds/webos/dist/build/org.xbmc.kodimega_<ver>_arm.ipk` (~74 MB, stripped); the unstripped `kodi-webos` (debug info) is archived to `~/kodi-mega-builds/symbols/webos/<commit>/` for crash reading (toolchain `arm-webos-linux-gnueabi-addr2line`).
 - First full build (2026-10-18): depends ~1 h, Kodi ~35 min.
 - Shared code must build on old glibc: no `gettid()` (use `syscall(SYS_gettid)`).
 - NOT active on webOS: the Android-only fixes (memory guard, MediaCodec/DV, AudioTrack, JNI, splash, stall watch).
@@ -132,7 +140,7 @@ tmux new -s kodiwebos 'tools/mega/build-webos.sh all 2>&1 | tee ~/kodi-mega-webo
 
 ```sh
 adb logcat -d -b crash > crash.txt
-~/Android/Sdk/ndk/28.2.13676358/ndk-stack -sym ~/kodi-mega-build/symbols/<commit> -dump crash.txt
+~/Android/Sdk/ndk/28.2.13676358/ndk-stack -sym ~/kodi-mega-builds/symbols/android32/<commit> -dump crash.txt
 ```
 
 ## Install on the Shield

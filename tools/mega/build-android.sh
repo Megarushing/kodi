@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Kodi Mega: build the Android APK on MegaServer. Default armeabi-v7a (bedroom Shield = 32-bit userspace);
 # ABI=arm64-v8a builds the 64-bit APK (living-room Shield). Each ABI needs its OWN source checkout
-# (depends is configured inside tools/depends): use a git worktree, e.g. ~/kodi-mega-src-arm64.
+# (depends is configured inside tools/depends): one git worktree per device type, ~/kodi-mega-builds/android32
+# and ~/kodi-mega-builds/android64, each building into its own dist/ (git-ignored).
+# Never `git clean -x` a build worktree: it deletes dist/ and Kodi's depends setup (hours to rebuild).
 # Steps follow docs/README.Android.md. Re-runs are incremental; delete $WORK to start clean.
 # Usage: [ABI=arm64-v8a] tools/mega/build-android.sh [depends|kodi|apk|symbols|all]   (default: all)
 set -euo pipefail
@@ -9,17 +11,18 @@ set -euo pipefail
 MEGA_ABI=${ABI:-armeabi-v7a}                                 # armeabi-v7a (32-bit) or arm64-v8a (64-bit)
 unset ABI                                                    # never leak: GMP's configure reads $ABI (failed with ABI=arm64-v8a)
 case $MEGA_ABI in
-  armeabi-v7a) HOST=arm-linux-androideabi; WORK_DEFAULT=$HOME/kodi-mega-build ;;
-  arm64-v8a)   HOST=aarch64-linux-android; WORK_DEFAULT=$HOME/kodi-mega-build-arm64 ;;
+  armeabi-v7a) HOST=arm-linux-androideabi; NAME=android32 ;;
+  arm64-v8a)   HOST=aarch64-linux-android; NAME=android64 ;;
   *) echo "unknown ABI $MEGA_ABI" >&2; exit 2 ;;
 esac
 SDK=$HOME/Android/Sdk                                        # sdkmanager root
 NDK=$SDK/ndk/28.2.13676358                                  # NDK version README.Android.md asks for (r28c since Kodi 22 Piers)
-WORK=${WORK:-$WORK_DEFAULT}                                  # tarballs, depends prefix, cmake build dir
+SRC=$(cd "$(dirname "$0")/../.." && pwd)
+WORK=${WORK:-$SRC/dist}                                      # tarballs, depends prefix, cmake build dir
+SYMBOLS=${SYMBOLS:-$HOME/kodi-mega-builds/symbols/$NAME}     # per-commit libkodi.so, outside dist/ so it survives a clean
 SIGNING=$HOME/.config/kodimega/signing.properties            # keystore path + passwords, never in git
 JOBS=$(getconf _NPROCESSORS_ONLN)
 
-SRC=$(cd "$(dirname "$0")/../.." && pwd)
 step=${1:-all}
 # one ABI per source checkout: refuse to reconfigure a tree that depends was set up for another host
 if [ -f "$SRC/tools/depends/Makefile.include" ] && ! grep -q "^HOST=$HOST\b" "$SRC/tools/depends/Makefile.include"; then
@@ -52,12 +55,12 @@ apk() {
 }
 
 # Keep the unstripped libkodi.so per commit, so Shield crash logs can be read later:
-#   adb logcat -d -b crash | $NDK/ndk-stack -sym $WORK/symbols/<commit>
+#   adb logcat -d -b crash | $NDK/ndk-stack -sym $SYMBOLS/<commit>
 symbols() {
   local rev dir
   rev=$(git -C "$SRC" rev-parse --short HEAD)
   git -C "$SRC" diff --quiet HEAD -- xbmc || rev="$rev-dirty"
-  dir="$WORK/symbols/$rev"
+  dir="$SYMBOLS/$rev"
   mkdir -p "$dir"
   cp "$WORK/build/libkodi.so" "$dir/"
   sha256sum "$SRC"/kodiapp-$MEGA_ABI-*.apk > "$dir/apk.sha256"
