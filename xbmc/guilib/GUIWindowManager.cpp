@@ -1879,7 +1879,7 @@ int CGUIWindowManager::UnloadHiddenKeptWindows()
   int count = 0;
   for (const auto& entry : m_mapWindows)
   {
-    CGUIWindow* window = entry.second;
+    const auto& window = entry.second;
     const int id = window->GetID();
     if (id == active || id == WINDOW_FULLSCREEN_VIDEO || id == WINDOW_VISUALISATION ||
         window->IsDialog() || window->IsActive() || IsWindowVisible(id))
