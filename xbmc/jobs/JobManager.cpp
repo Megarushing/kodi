@@ -468,7 +468,9 @@ unsigned int CJobManager::GetMaxWorkers(CJob::PRIORITY priority)
   if (priority == CJob::PRIORITY_LOW_PAUSABLE)
     return GetMaxPausableWorkers();
 
-  static const unsigned int max_workers = 5;
+  // LOCAL PATCH (megarushing): 5 -> 8. Home rows are LOW plugin fetches that mostly wait on Python
+  // start-up and the network; with 3 slots ~11 rows queued 20-35 s. Now LOW 6, NORMAL 7, HIGH 8.
+  static const unsigned int max_workers = 8;
   return max_workers - (CJob::PRIORITY_HIGH - priority);
 }
 
