@@ -13,7 +13,8 @@ SRC=$(cd "$(dirname "$0")/../.." && pwd)
 WORK=${WORK:-$SRC/dist}                                      # tarballs, depends prefix, cmake build dir
 TC=$HOME/kodi-mega-builds/toolchains/arm-webos-linux-gnueabi_sdk-buildroot  # unpacked toolchain, shared by every WORK
 SYMBOLS=${SYMBOLS:-$HOME/kodi-mega-builds/symbols/webos}     # per-commit kodi-webos, outside dist/ so it survives a clean
-CMAKE_ARGS='-DCORE_PLATFORM_NAME=webos -DENABLE_DBUS=OFF -DENABLE_CEC=OFF -DENABLE_PIPEWIRE=OFF -DHAVE_LINUX_UDMABUF=OFF'
+CMAKE_ARGS='-DCORE_PLATFORM_NAME=webos -DENABLE_DBUS=OFF -DENABLE_CEC=OFF -DENABLE_PIPEWIRE=OFF -DHAVE_LINUX_UDMABUF=OFF -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY'
+# FIND_ROOT_PATH_MODE_PACKAGE=ONLY: else find_package(CONFIG) takes host packages off PATH (linuxbrew libxslt -> LIBXSLT_LIBRARY-NOTFOUND at link)
 JOBS=$(getconf _NPROCESSORS_ONLN)
 export PATH="$HOME/.npm-global/bin:$PATH"                    # ares-package (npm i -g @webos-tools/cli)
 
