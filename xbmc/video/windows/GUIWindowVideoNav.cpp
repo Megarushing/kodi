@@ -79,6 +79,26 @@ using namespace KODI::MESSAGING;
 
 constexpr char PROPERTY_WATCHED_MODE[] = "watchedmode";
 
+namespace
+{
+// Kodi Mega: plugin:// listings have no videodb path, so derive the node type from the
+// list's content too. Lets "select first unwatched season / episode" work in add-on lists
+// (e.g. TMDb Helper episode lists). Based on xbmc/xbmc#26105 (abandoned upstream).
+NodeType GetItemListNodeType(const CFileItemList& items)
+{
+  if (VIDEO::IsVideoDb(items))
+    return CVideoDatabaseDirectory::GetDirectoryChildType(items.GetPath());
+
+  if (items.GetContent() == "seasons")
+    return NodeType::SEASONS;
+
+  if (items.GetContent() == "episodes")
+    return NodeType::EPISODES;
+
+  return NodeType::NONE;
+}
+} // namespace
+
 CGUIWindowVideoNav::CGUIWindowVideoNav(void)
     : CGUIWindowVideoBase(WINDOW_VIDEO_NAV, "MyVideoNav.xml")
 {
@@ -287,7 +307,7 @@ int CGUIWindowVideoNav::GetFirstUnwatchedItemIndex(bool includeAllSeasons, bool 
   int iIndex = 0;
   int iUnwatchedSeason = INT_MAX;
   int iUnwatchedEpisode = INT_MAX;
-  NodeType nodeType = CVideoDatabaseDirectory::GetDirectoryChildType(m_vecItems->GetPath());
+  const NodeType nodeType{GetItemListNodeType(*m_vecItems)};
 
   // Run through the list of items and find the first unwatched season/episode
   for (int i = 0; i < m_vecItems->Size(); ++i)
@@ -344,10 +364,9 @@ bool CGUIWindowVideoNav::Update(const std::string &strDirectory, bool updateFilt
 
 void CGUIWindowVideoNav::SelectDefaultItem()
 {
-  if (!VIDEO::IsVideoDb(*m_vecItems))
+  const NodeType nodeType{GetItemListNodeType(*m_vecItems)};
+  if (nodeType == NodeType::NONE)
     return;
-
-  const NodeType nodeType{CVideoDatabaseDirectory::GetDirectoryChildType(m_vecItems->GetPath())};
   const bool isItemSelected{m_viewControl.GetSelectedItem() > 0};
 
   switch (nodeType)
