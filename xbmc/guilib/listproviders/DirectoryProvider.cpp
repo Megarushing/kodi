@@ -47,6 +47,7 @@
 #include "video/guilib/VideoPlayActionProcessor.h"
 #include "video/guilib/VideoSelectActionProcessor.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -816,7 +817,9 @@ int CDirectoryProvider::GetInitialItem(
       return -1;
     entries.push_back({i, tag->m_iSeason, tag->m_iEpisode, tag->GetPlayCount() > 0, false});
   }
-  return KODI::VIDEO::GUILIB::GetNextUnwatchedIndex(entries);
+  // A fully watched season starts at its first episode, not at a position left from the
+  // previous list.
+  return std::max(KODI::VIDEO::GUILIB::GetNextUnwatchedIndex(entries), 0);
 }
 
 bool CDirectoryProvider::UpdateURL()
