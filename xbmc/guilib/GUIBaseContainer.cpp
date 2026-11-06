@@ -1197,6 +1197,17 @@ void CGUIBaseContainer::UpdateListProvider(bool forceRefresh /* = false */)
           }
         }
       }
+      // LOCAL PATCH (megarushing): a new list (not a refresh of this one) may start at an
+      // item chosen by the provider, e.g. the first unwatched episode.
+      if (!found)
+      {
+        const int initialItem{m_listProvider->GetInitialItem(m_items)};
+        if (initialItem >= 0)
+        {
+          SelectItem(initialItem);
+          found = true;
+        }
+      }
       if (!found && currentItem >= (int)m_items.size())
         SelectItem(m_items.size()-1);
       SetInvalid();

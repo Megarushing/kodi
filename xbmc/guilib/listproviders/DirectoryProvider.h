@@ -73,6 +73,7 @@ public:
   bool OnInfo(const std::shared_ptr<CGUIListItem>& item) override;
   bool OnContextMenu(const std::shared_ptr<CGUIListItem>& item) override;
   bool IsUpdating() const override;
+  int GetInitialItem(const std::vector<std::shared_ptr<CGUIListItem>>& items) const override;
   void FreeResources(bool immediately) override;
   void CancelPendingUpdate() override; // LOCAL PATCH (megarushing)
 

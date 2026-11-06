@@ -119,6 +119,15 @@ public:
    */
   virtual bool AlwaysFocusDefaultItem() const { return false; }
 
+  /*! \brief LOCAL PATCH (megarushing): item to select when the container gets a new list.
+   \param items the items the container just fetched from this provider.
+   \return the index to select, -1 to keep the container's default.
+   */
+  virtual int GetInitialItem(const std::vector<std::shared_ptr<CGUIListItem>>& items) const
+  {
+    return -1;
+  }
+
   /*!
    * \brief Called when the list provider is replacing a container's existing list provider
    *

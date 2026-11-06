@@ -19,6 +19,7 @@
 #include "interfaces/AnnouncementManager.h"
 #include "interfaces/IAnnouncer.h"
 #include "jobs/JobManager.h"
+#include "media/MediaType.h"
 #include "music/MusicFileItemClassify.h"
 #include "music/MusicThumbLoader.h"
 #include "pictures/PictureThumbLoader.h"
@@ -783,6 +784,39 @@ bool CDirectoryProvider::IsUpdating() const
 
   std::unique_lock subscriptionLock(m_subscriptionSection);
   return m_subscriber && !m_subscriber->IsReadyToUse();
+}
+
+// LOCAL PATCH (megarushing): a widget holding one season of one show (e.g. Arctic Fuse's
+// episode row under the season tabs) starts at its first unwatched episode, following the
+// "select first unwatched TV show season / episode" setting.
+int CDirectoryProvider::GetInitialItem(
+    const std::vector<std::shared_ptr<CGUIListItem>>& items) const
+{
+  if (items.size() < 2 ||
+      CServiceBroker::GetSettingsComponent()->GetSettings()->GetInt(
+          CSettings::SETTING_VIDEOLIBRARY_TVSHOWSSELECTFIRSTUNWATCHEDITEM) == 0)
+    return -1;
+
+  int firstUnwatched{-1};
+  const CVideoInfoTag* first{nullptr};
+  for (int i = 0; i < static_cast<int>(items.size()); ++i)
+  {
+    if (!items[i]->IsFileItem())
+      return -1;
+    const auto& fileItem{static_cast<const CFileItem&>(*items[i])};
+    if (!fileItem.HasVideoInfoTag())
+      return -1;
+    const CVideoInfoTag* tag{fileItem.GetVideoInfoTag()};
+    if (tag->m_type != MediaTypeEpisode || tag->m_iEpisode < 0)
+      return -1;
+    if (!first)
+      first = tag;
+    else if (tag->m_iSeason != first->m_iSeason || tag->m_strShowTitle != first->m_strShowTitle)
+      return -1;
+    if (firstUnwatched < 0 && tag->GetPlayCount() == 0)
+      firstUnwatched = i;
+  }
+  return firstUnwatched;
 }
 
 bool CDirectoryProvider::UpdateURL()
