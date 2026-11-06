@@ -43,6 +43,7 @@
 #include "video/VideoInfoTag.h"
 #include "video/VideoThumbLoader.h"
 #include "video/guilib/VideoGUIUtils.h"
+#include "video/guilib/VideoNextUnwatched.h"
 #include "video/guilib/VideoPlayActionProcessor.h"
 #include "video/guilib/VideoSelectActionProcessor.h"
 
@@ -787,8 +788,8 @@ bool CDirectoryProvider::IsUpdating() const
 }
 
 // LOCAL PATCH (megarushing): a widget holding one season of one show (e.g. Arctic Fuse's
-// episode row under the season tabs) starts at its first unwatched episode, following the
-// "select first unwatched TV show season / episode" setting.
+// episode row under the season tabs) starts at the first unwatched episode after the last
+// watched one, following the "select first unwatched TV show season / episode" setting.
 int CDirectoryProvider::GetInitialItem(
     const std::vector<std::shared_ptr<CGUIListItem>>& items) const
 {
@@ -797,7 +798,7 @@ int CDirectoryProvider::GetInitialItem(
           CSettings::SETTING_VIDEOLIBRARY_TVSHOWSSELECTFIRSTUNWATCHEDITEM) == 0)
     return -1;
 
-  int firstUnwatched{-1};
+  std::vector<KODI::VIDEO::GUILIB::NextUnwatchedEntry> entries;
   const CVideoInfoTag* first{nullptr};
   for (int i = 0; i < static_cast<int>(items.size()); ++i)
   {
@@ -813,10 +814,9 @@ int CDirectoryProvider::GetInitialItem(
       first = tag;
     else if (tag->m_iSeason != first->m_iSeason || tag->m_strShowTitle != first->m_strShowTitle)
       return -1;
-    if (firstUnwatched < 0 && tag->GetPlayCount() == 0)
-      firstUnwatched = i;
+    entries.push_back({i, tag->m_iSeason, tag->m_iEpisode, tag->GetPlayCount() > 0, false});
   }
-  return firstUnwatched;
+  return KODI::VIDEO::GUILIB::GetNextUnwatchedIndex(entries);
 }
 
 bool CDirectoryProvider::UpdateURL()

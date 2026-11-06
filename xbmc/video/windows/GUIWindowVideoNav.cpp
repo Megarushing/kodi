@@ -50,10 +50,12 @@
 #include "video/VideoInfoScanner.h"
 #include "video/VideoLibraryQueue.h"
 #include "video/dialogs/GUIDialogVideoInfo.h"
+#include "video/guilib/VideoNextUnwatched.h"
 #include "video/jobs/VideoLibraryRefreshingSourceJob.h"
 #include "view/GUIViewState.h"
 
 #include <utility>
+#include <vector>
 
 using namespace XFILE;
 using namespace VIDEODATABASEDIRECTORY;
@@ -304,12 +306,13 @@ IncludeAllSeasonsAndSpecials CGUIWindowVideoNav::GetSettingIncludeAllSeasonsAndS
 
 int CGUIWindowVideoNav::GetFirstUnwatchedItemIndex(bool includeAllSeasons, bool includeSpecials)
 {
-  int iIndex = 0;
-  int iUnwatchedSeason = INT_MAX;
-  int iUnwatchedEpisode = INT_MAX;
   const NodeType nodeType{GetItemListNodeType(*m_vecItems)};
+  if (nodeType != NodeType::SEASONS && nodeType != NodeType::EPISODES)
+    return 0;
 
-  // Run through the list of items and find the first unwatched season/episode
+  // LOCAL PATCH (megarushing): pick the first unwatched season / episode after the last
+  // watched one, not the first unwatched one overall.
+  std::vector<KODI::VIDEO::GUILIB::NextUnwatchedEntry> entries;
   for (int i = 0; i < m_vecItems->Size(); ++i)
   {
     CFileItemPtr pItem = m_vecItems->Get(i);
@@ -321,35 +324,24 @@ int CGUIWindowVideoNav::GetFirstUnwatchedItemIndex(bool includeAllSeasons, bool 
     if ((!includeAllSeasons && pTag->m_iSeason < 0) || (!includeSpecials && pTag->m_iSeason == 0))
       continue;
 
+    // TMDb Helper adds a show-wide "Groups" folder to season lists.
+    if (nodeType == NodeType::SEASONS && pTag->m_type == MediaTypeTvShow)
+      continue;
+
     // Use the special sort values if they're available
     int iSeason = pTag->m_iSpecialSortSeason >= 0 ? pTag->m_iSpecialSortSeason : pTag->m_iSeason;
     int iEpisode = pTag->m_iSpecialSortEpisode >= 0 ? pTag->m_iSpecialSortEpisode : pTag->m_iEpisode;
 
+    const bool watched{pTag->GetPlayCount() > 0};
     if (nodeType == NodeType::SEASONS)
-    {
-      // Is the season unwatched, and is its season number lower than the currently identified
-      // first unwatched season
-      if (pTag->GetPlayCount() == 0 && iSeason < iUnwatchedSeason)
-      {
-        iUnwatchedSeason = iSeason;
-        iIndex = i;
-      }
-    }
-
-    if (nodeType == NodeType::EPISODES)
-    {
-      // Is the episode unwatched, and is its season number lower
-      // or is its episode number lower within the current season
-      if (pTag->GetPlayCount() == 0 && (iSeason < iUnwatchedSeason || (iSeason == iUnwatchedSeason && iEpisode < iUnwatchedEpisode)))
-      {
-        iUnwatchedSeason = iSeason;
-        iUnwatchedEpisode = iEpisode;
-        iIndex = i;
-      }
-    }
+      entries.push_back(
+          {i, iSeason, 0, watched, pItem->GetProperty("watchedepisodes").asInteger() > 0});
+    else
+      entries.push_back({i, iSeason, iEpisode, watched, false});
   }
 
-  return iIndex;
+  const int index{KODI::VIDEO::GUILIB::GetNextUnwatchedIndex(entries)};
+  return index < 0 ? 0 : index;
 }
 
 bool CGUIWindowVideoNav::Update(const std::string &strDirectory, bool updateFilterPath /* = true */)

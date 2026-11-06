@@ -7,6 +7,7 @@ set(SOURCES VideoActionProcessorBase.cpp
 set(HEADERS VideoAction.h
             VideoActionProcessorBase.h
             VideoGUIUtils.h
+            VideoNextUnwatched.h
             VideoPlayActionProcessor.h
             VideoSelectActionProcessor.h
             VideoStreamSelectHelper.h)
