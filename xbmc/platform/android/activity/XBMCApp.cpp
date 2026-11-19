@@ -1217,16 +1217,22 @@ namespace stallwatch
 constexpr int STALL_MS = 5000;
 constexpr int REPORT_EVERY_MS = 10000;
 constexpr int MAX_ADDRS = 48;
+// The scan also picks up stale return addresses (libc/scudo) that can fill MAX_ADDRS before the
+// first libkodi.so frame, so libkodi.so addresses are collected separately as well.
+constexpr int MAX_KODI_ADDRS = 24;
 constexpr size_t MAX_SCAN_BYTES = 64 * 1024;
 
 struct Range { uintptr_t lo, hi; };
 Range g_ranges[16];
+bool g_rangeIsKodi[16] = {};
 int g_rangeCount = 0;
 std::atomic<int64_t> g_heartbeatMs{0};
 std::atomic<pid_t> g_appTid{0};
 uintptr_t g_stackLo = 0, g_stackHi = 0;
 volatile uintptr_t g_addrs[MAX_ADDRS];
 volatile int g_addrCount = 0;
+volatile uintptr_t g_kodiAddrs[MAX_KODI_ADDRS];
+volatile int g_kodiAddrCount = 0;
 std::atomic<bool> g_captured{false};
 std::atomic<bool> g_started{false};
 std::atomic<bool> g_stop{false};
@@ -1239,12 +1245,13 @@ int64_t NowMs()
              std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-bool InRanges(uintptr_t a)
+// Index of the range holding a, or -1.
+int FindRange(uintptr_t a)
 {
   for (int i = 0; i < g_rangeCount; i++)
     if (a >= g_ranges[i].lo && a < g_ranges[i].hi)
-      return true;
-  return false;
+      return i;
+  return -1;
 }
 
 int CollectRanges(struct dl_phdr_info* info, size_t, void*)
@@ -1259,7 +1266,10 @@ int CollectRanges(struct dl_phdr_info* info, size_t, void*)
   {
     const auto& ph = info->dlpi_phdr[i];
     if (ph.p_type == PT_LOAD && (ph.p_flags & PF_X))
+    {
+      g_rangeIsKodi[g_rangeCount] = strstr(name, "libkodi.so") != nullptr;
       g_ranges[g_rangeCount++] = {info->dlpi_addr + ph.p_vaddr, info->dlpi_addr + ph.p_vaddr + ph.p_memsz};
+    }
   }
   return 0;
 }
@@ -1279,19 +1289,27 @@ void Handler(int, siginfo_t*, void* uctx)
 #else
   uintptr_t sp = 0; // no register capture on this ABI; stack scan is skipped
 #endif
+  int k = 0;
   uintptr_t end = g_stackHi;
   if (sp >= g_stackLo && sp < g_stackHi)
   {
     if (end - sp > MAX_SCAN_BYTES)
       end = sp + MAX_SCAN_BYTES;
-    for (uintptr_t p = sp; p + sizeof(uintptr_t) <= end && n < MAX_ADDRS; p += sizeof(uintptr_t))
+    for (uintptr_t p = sp; p + sizeof(uintptr_t) <= end && (n < MAX_ADDRS || k < MAX_KODI_ADDRS);
+         p += sizeof(uintptr_t))
     {
       const uintptr_t v = *reinterpret_cast<const uintptr_t*>(p);
-      if (InRanges(v))
+      const int r = FindRange(v);
+      if (r < 0)
+        continue;
+      if (n < MAX_ADDRS)
         g_addrs[n++] = v;
+      if (g_rangeIsKodi[r] && k < MAX_KODI_ADDRS)
+        g_kodiAddrs[k++] = v;
     }
   }
   g_addrCount = n;
+  g_kodiAddrCount = k;
   g_captured = true;
 }
 
@@ -1349,6 +1367,9 @@ void Watch()
     std::string trace;
     for (int i = 0; i < g_addrCount; i++)
       trace += (i ? " " : "") + Describe(g_addrs[i]);
+    trace += " | kodi:";
+    for (int i = 0; i < g_kodiAddrCount; i++)
+      trace += " " + Describe(g_kodiAddrs[i]);
     CLog::Log(LOGWARNING, "StallWatch: main loop stalled {} ms: {}", now - stallStart, trace);
   }
 }
