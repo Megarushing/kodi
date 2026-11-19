@@ -38,6 +38,7 @@ public:
 
   float GetWidth() const override;
   float GetHeight() const override;
+  CRect CalcRenderRegion() const override;
   virtual float Size() const;
   void SetInvalid() override;
 

@@ -5,10 +5,13 @@ set(SOURCES TestBookmark.cpp
             TestSetInfoTag.cpp
             TestStacks.cpp
             TestVideoDatabase.cpp
+            TestVideoDatabaseMigration.cpp
             TestVideoDbUrl.cpp
             TestVideoFileItemClassify.cpp
             TestVideoInfoScanner.cpp
+            TestVideoInfoScannerArt.cpp
             TestVideoInfoTag.cpp
+            TestVideoItemArtworkHandler.cpp
             TestVideoStreamSelect.cpp
             TestVideoTagLoaderFFmpeg.cpp
             TestVideoTagLoaderNFO.cpp

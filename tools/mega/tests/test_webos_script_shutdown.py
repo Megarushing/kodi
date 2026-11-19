@@ -114,6 +114,7 @@ struct CPythonInvoker {
 PyObject* PyImport_GetModuleDict() { return nullptr; }
 void PyDict_Clear(PyObject*) {}
 void Py_Finalize() { ++finalized; }
+namespace XBMCAddon { struct RetardedAsyncCallbackHandler { static void clearAllPendingCalls() {} }; }
 #define XBMC_TRACE do {} while(false)
 #define LOCK_AND_COPY(type,dest,src) if (!m_bInitialized) return; std::unique_lock<PyList> lock(src); type dest; dest=src
 struct XBPython {

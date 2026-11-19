@@ -53,6 +53,7 @@ public:
 
   void FrameMove();
   void Render(bool clear, uint32_t alpha = 255, bool gui = true);
+  bool CompositeVideoCapture(KODI::RENDERING::CAPTURE::CaptureResult& result);
   void FlushRenderer();
   void SetRenderViewMode(int mode, float zoom, float par, float shift, bool stretch);
   float GetRenderAspectRatio() const;
@@ -146,6 +147,7 @@ public:
   int SeekChapter(int iChapter);
   void SeekPercentage(float fPercent = 0);
   bool SeekScene(Direction seekDirection);
+  void SeekChapterOrSceneOrBigStep(Direction direction);
   void SeekTime(int64_t iTime = 0);
   void SeekTimeRelative(int64_t iTime = 0);
   void SetAudioStream(int iStream);
