@@ -203,6 +203,9 @@ bool CJobManager::CancelJobIfQueued(unsigned int jobID)
       return true;
     }
   }
+  // LOCAL PATCH (megarushing): WidgetDebug - a miss is either running or already gone.
+  const bool running = std::ranges::any_of(m_processing, [jobID](const auto& wi) { return wi.GetId() == jobID; });
+  CLog::Log(LOGINFO, "WidgetDebug: job {} not queued ({})", jobID, running ? "running" : "gone");
   return false;
 }
 

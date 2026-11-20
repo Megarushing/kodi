@@ -472,7 +472,7 @@ std::unique_ptr<IListProvider> CDirectoryProvider::Clone()
   return std::make_unique<CDirectoryProvider>(*this);
 }
 
-void CDirectoryProvider::StartDirectoryJob()
+void CDirectoryProvider::StartDirectoryJob(const char* why)
 {
   // Evaluated before m_section is taken - see the lock order rule at the top of this file.
   // Callers must not hold m_section: this runs on the job worker and on the timer thread.
@@ -493,6 +493,9 @@ void CDirectoryProvider::StartDirectoryJob()
       new CDirectoryJob(m_currentUrl, target, m_currentSort, m_currentLimit, m_currentBrowse,
                         GetParentId()),
       this, priority);
+  // LOCAL PATCH (megarushing): WidgetDebug - who queued this fetch, for which window.
+  CLog::Log(LOGINFO, "WidgetDebug: start {} win {} job {} {}", why, GetParentId(), m_jobID,
+            m_currentUrl.substr(0, 120));
 }
 
 bool CDirectoryProvider::Update(bool forceRefresh)
@@ -502,10 +505,12 @@ bool CDirectoryProvider::Update(bool forceRefresh)
   bool fireJob = false;
 
   // update the URL & limit and fire off a new job if needed
-  fireJob |= UpdateURL();
-  fireJob |= UpdateSort();
-  fireJob |= UpdateLimit();
-  fireJob |= UpdateBrowse();
+  // LOCAL PATCH (megarushing): WidgetDebug - name the change that fires a job.
+  std::string startWhy;
+  if (UpdateURL()) { fireJob = true; startWhy += "url,"; }
+  if (UpdateSort()) { fireJob = true; startWhy += "sort,"; }
+  if (UpdateLimit()) { fireJob = true; startWhy += "limit,"; }
+  if (UpdateBrowse()) { fireJob = true; startWhy += "browse,"; }
   fireJob &= !m_currentUrl.empty();
 
   bool startJob = false;
@@ -516,7 +521,10 @@ bool CDirectoryProvider::Update(bool forceRefresh)
   {
     std::unique_lock lock(m_section);
     if (m_updateState == UpdateState::INVALIDATED)
+    {
       fireJob = true;
+      startWhy += "invalidated,";
+    }
     else if (m_updateState == UpdateState::DONE)
       changed = true;
 
@@ -528,6 +536,9 @@ bool CDirectoryProvider::Update(bool forceRefresh)
       {
         // Ignore update request for now.
         // We will start another update job once the currently running has finished.
+        if (!m_jobPending)
+          CLog::Log(LOGINFO, "WidgetDebug: pending {}while job {} win {} {}", startWhy, m_jobID,
+                    GetParentId(), m_currentUrl.substr(0, 120));
         m_jobPending = true;
         changed = false;
       }
@@ -552,7 +563,7 @@ bool CDirectoryProvider::Update(bool forceRefresh)
   }
 
   if (startJob)
-    StartDirectoryJob();
+    StartDirectoryJob(startWhy.c_str());
 
   for (const auto& i : items)
     changed |= i->UpdateVisibility(GetParentId());
@@ -614,6 +625,9 @@ void CDirectoryProvider::Reset()
 void CDirectoryProvider::CancelPendingUpdate()
 {
   std::unique_lock lock(m_section);
+  // LOCAL PATCH (megarushing): WidgetDebug - log every cancel attempt, not only the hits.
+  CLog::Log(LOGINFO, "WidgetDebug: cancel win {} job {} pending {} state {} {}", GetParentId(),
+            m_jobID, m_jobPending, static_cast<int>(m_updateState), m_currentUrl.substr(0, 120));
   m_jobPending = false;
   m_nextJobTimer.Stop();
   // A fetch that already runs is left to finish (its result is still wanted); a queued one is
@@ -699,7 +713,7 @@ void CDirectoryProvider::OnJobComplete(unsigned int jobID, bool success, CJob* j
   oldItems.clear(); // GUI teardown, outside m_section
 
   if (startJobNow)
-    StartDirectoryJob();
+    StartDirectoryJob("jobcomplete-pending");
   else if (startJobDelay.count() > 0)
     m_nextJobTimer.Start(startJobDelay);
 }
@@ -715,7 +729,7 @@ void CDirectoryProvider::OnTimeout()
   // Outside m_section - this runs on the timer thread and StartDirectoryJob() reaches the
   // GfxContext; see the lock order rule at the top of this file.
   if (startJob)
-    StartDirectoryJob();
+    StartDirectoryJob("timer");
 }
 
 bool CDirectoryProvider::OnEventPublished(Topic topic /*= Topic::UNSPECIFIED*/)

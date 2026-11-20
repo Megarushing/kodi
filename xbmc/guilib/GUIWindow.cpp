@@ -559,6 +559,7 @@ EVENT_RESULT CGUIWindow::OnMouseEvent(const CPoint& point, const MOUSE::CMouseEv
 /// calling the base method.
 void CGUIWindow::OnInitWindow()
 {
+  CLog::Log(LOGINFO, "WidgetDebug: init window {}", GetID()); // LOCAL PATCH (megarushing)
   //  Play the window specific init sound
   if (IsSoundEnabled())
     CServiceBroker::GetGUI()->GetAudioManager().PlayWindowSound(GetID(), SOUND_INIT);
@@ -600,6 +601,7 @@ void CGUIWindow::OnDeinitWindow(int nextWindowID)
   m_active = false;
   // LOCAL PATCH (megarushing): a window left in the background (skin hubs/tabs stay loaded) kept
   // its queued widget fetches, which then took the few fetch slots from the window now shown.
+  CLog::Log(LOGINFO, "WidgetDebug: deinit window {} next {}", GetID(), nextWindowID);
   CancelContainerListUpdates();
 }
 

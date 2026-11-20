@@ -94,7 +94,7 @@ private:
     DONE
   };
 
-  void StartDirectoryJob();
+  void StartDirectoryJob(const char* why); // LOCAL PATCH (megarushing): WidgetDebug trigger name
 
   // ITimerCallback implementation
   void OnTimeout() override;
