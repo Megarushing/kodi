@@ -89,6 +89,16 @@ void CMultiProvider::FreeResources(bool immediately)
     provider->FreeResources(immediately);
 }
 
+// LOCAL PATCH (megarushing): pass the window-leave cancel on to every content of the list. Arctic
+// Fuse gives each widget row a second <content> (the "No results" item), so its rows are multi
+// providers; without this, leaving a tab dropped none of its queued fetches (measured 2026-11-20:
+// 1 of 28 rows dropped, the next tab's rows waited 43-59 s behind them).
+void CMultiProvider::CancelPendingUpdate()
+{
+  for (auto const& provider : m_providers)
+    provider->CancelPendingUpdate();
+}
+
 bool CMultiProvider::OnClick(const std::shared_ptr<CGUIListItem>& item)
 {
   std::unique_lock lock(m_section);
