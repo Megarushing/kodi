@@ -36,6 +36,9 @@
 #include "utils/URIUtils.h"
 #include "utils/Variant.h"
 #include "utils/XMLUtils.h"
+
+#include <map>
+#include <mutex>
 #include "utils/guilib/GUIBuiltinsUtils.h"
 #include "utils/guilib/GUIContentUtils.h"
 #include "utils/log.h"
@@ -472,6 +475,45 @@ std::unique_ptr<IListProvider> CDirectoryProvider::Clone()
   return std::make_unique<CDirectoryProvider>(*this);
 }
 
+// LOCAL PATCH (megarushing): settle delay - see NoteWindowInit() in the header. Measured
+// 2026-11-20 (living Shield): passing tab 1101 on the way to True Crime left 6 of its plugin rows
+// running (12-28 s each); True Crime's last row then filled after 44 s instead of ~20 s.
+namespace
+{
+constexpr std::chrono::milliseconds WIDGET_SETTLE_TIME{700};
+
+std::mutex& SettleMutex()
+{
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::map<int, std::chrono::steady_clock::time_point>& WindowInitTimes()
+{
+  static std::map<int, std::chrono::steady_clock::time_point> times;
+  return times;
+}
+
+// Time left before a list of this window may start a plugin fetch; zero when it may start now.
+std::chrono::milliseconds SettleTimeLeft(int windowID)
+{
+  std::lock_guard lock(SettleMutex());
+  const auto it = WindowInitTimes().find(windowID);
+  if (it == WindowInitTimes().end())
+    return std::chrono::milliseconds{0};
+  const auto openFor = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - it->second);
+  return openFor >= WIDGET_SETTLE_TIME ? std::chrono::milliseconds{0}
+                                       : WIDGET_SETTLE_TIME - openFor;
+}
+} // namespace
+
+void CDirectoryProvider::NoteWindowInit(int windowID)
+{
+  std::lock_guard lock(SettleMutex());
+  WindowInitTimes()[windowID] = std::chrono::steady_clock::now();
+}
+
 void CDirectoryProvider::StartDirectoryJob(const char* why)
 {
   // Evaluated before m_section is taken - see the lock order rule at the top of this file.
@@ -514,6 +556,7 @@ bool CDirectoryProvider::Update(bool forceRefresh)
   fireJob &= !m_currentUrl.empty();
 
   bool startJob = false;
+  std::chrono::milliseconds settleDelay{0}; // LOCAL PATCH (megarushing): settle delay
   // Snapshot taken under m_section; visibility is evaluated after it is released, because
   // InfoBool::Get() reaches the GfxContext - see the lock order rule at the top of this file.
   std::vector<CGUIStaticItemPtr> items;
@@ -554,6 +597,18 @@ bool CDirectoryProvider::Update(bool forceRefresh)
         {
           // Start a new update job, once m_section is released.
           startJob = true;
+          // LOCAL PATCH (megarushing): settle delay - a plugin list of a window opened less than
+          // WIDGET_SETTLE_TIME ago waits on m_nextJobTimer (OnTimeout starts it while still
+          // pending). Leaving the window first clears the pending flag and invalidates the list
+          // in CancelPendingUpdate(), so it is fetched on the next visit and never left empty.
+          if (StringUtils::StartsWith(m_currentUrl, "plugin://"))
+            settleDelay = SettleTimeLeft(GetParentId());
+          if (settleDelay.count() > 0)
+          {
+            startJob = false;
+            m_jobPending = true;
+            changed = false;
+          }
         }
       }
     }
@@ -564,6 +619,13 @@ bool CDirectoryProvider::Update(bool forceRefresh)
 
   if (startJob)
     StartDirectoryJob(startWhy.c_str());
+  else if (settleDelay.count() > 0)
+  {
+    // LOCAL PATCH (megarushing): settle delay; outside m_section like OnJobComplete's timer start.
+    CLog::Log(LOGINFO, "WidgetDebug: settle {}ms {}win {} {}", settleDelay.count(), startWhy,
+              GetParentId(), m_currentUrl.substr(0, 120));
+    m_nextJobTimer.Start(settleDelay);
+  }
 
   for (const auto& i : items)
     changed |= i->UpdateVisibility(GetParentId());
@@ -628,6 +690,10 @@ void CDirectoryProvider::CancelPendingUpdate()
   // LOCAL PATCH (megarushing): WidgetDebug - log every cancel attempt, not only the hits.
   CLog::Log(LOGINFO, "WidgetDebug: cancel win {} job {} pending {} state {} {}", GetParentId(),
             m_jobID, m_jobPending, static_cast<int>(m_updateState), m_currentUrl.substr(0, 120));
+  // LOCAL PATCH (megarushing): a fetch that was only waiting (settle delay, or the 1 s rate limit
+  // after a finished job) has no job to cancel; mark the list for a fetch on the next visit.
+  if (m_jobPending && !m_jobID)
+    m_updateState = UpdateState::INVALIDATED;
   m_jobPending = false;
   m_nextJobTimer.Stop();
   // A fetch that already runs is left to finish (its result is still wanted); a queued one is

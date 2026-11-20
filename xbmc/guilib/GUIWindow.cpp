@@ -8,6 +8,8 @@
 
 #include "GUIWindow.h"
 
+#include "listproviders/DirectoryProvider.h" // LOCAL PATCH (megarushing): settle delay
+
 #include "GUIAudioManager.h"
 #include "GUIComponent.h"
 #include "GUIControlFactory.h"
@@ -619,6 +621,8 @@ bool CGUIWindow::OnMessage(CGUIMessage& message)
   case GUI_MSG_WINDOW_INIT:
     {
       CLog::Log(LOGDEBUG, "------ Window Init ({}) ------", GetProperty("xmlfile").asString());
+      // LOCAL PATCH (megarushing): settle delay - before AllocResources, which loads the lists.
+      CDirectoryProvider::NoteWindowInit(GetID());
       if (m_dynamicResourceAlloc || !m_bAllocated) AllocResources(false);
       OnInitWindow();
       return true;

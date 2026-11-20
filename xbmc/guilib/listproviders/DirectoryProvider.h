@@ -77,6 +77,11 @@ public:
   void FreeResources(bool immediately) override;
   void CancelPendingUpdate() override; // LOCAL PATCH (megarushing)
 
+  // LOCAL PATCH (megarushing): settle delay. A window records when it was opened; its plugin://
+  // lists start fetching only once it has stayed open for WIDGET_SETTLE_TIME, so tabs that are
+  // only passed through on a skin's tab bar start no add-on Python at all.
+  static void NoteWindowInit(int windowID);
+
   // callback from directory job
   void OnJobComplete(unsigned int jobID, bool success, CJob* job) override;
 
