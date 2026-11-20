@@ -480,7 +480,10 @@ std::unique_ptr<IListProvider> CDirectoryProvider::Clone()
 // running (12-28 s each); True Crime's last row then filled after 44 s instead of ~20 s.
 namespace
 {
-constexpr std::chrono::milliseconds WIDGET_SETTLE_TIME{700};
+// Counted from the end of the window load (CGUIWindow notes it again after AllocResources: an
+// Arctic Fuse hub takes ~650 ms to load). Its tab bar switches windows ~1.35 s apart even on fast
+// key presses, so a tab passed on the way stays open ~0.7 s after its load.
+constexpr std::chrono::milliseconds WIDGET_SETTLE_TIME{1000};
 
 std::mutex& SettleMutex()
 {
@@ -787,9 +790,19 @@ void CDirectoryProvider::OnJobComplete(unsigned int jobID, bool success, CJob* j
 void CDirectoryProvider::OnTimeout()
 {
   bool startJob{false};
+  std::chrono::milliseconds settleLeft{0};
   {
     std::unique_lock lock(m_section);
     startJob = m_jobPending;
+    // LOCAL PATCH (megarushing): settle delay - the window may have been noted again after its
+    // load, so re-check and wait the rest instead of starting early.
+    if (startJob && !m_jobID && StringUtils::StartsWith(m_currentUrl, "plugin://"))
+      settleLeft = SettleTimeLeft(GetParentId());
+  }
+  if (settleLeft.count() > 0)
+  {
+    m_nextJobTimer.Start(settleLeft);
+    return;
   }
 
   // Outside m_section - this runs on the timer thread and StartDirectoryJob() reaches the

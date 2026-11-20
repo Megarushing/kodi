@@ -624,6 +624,7 @@ bool CGUIWindow::OnMessage(CGUIMessage& message)
       // LOCAL PATCH (megarushing): settle delay - before AllocResources, which loads the lists.
       CDirectoryProvider::NoteWindowInit(GetID());
       if (m_dynamicResourceAlloc || !m_bAllocated) AllocResources(false);
+      CDirectoryProvider::NoteWindowInit(GetID()); // LOCAL PATCH (megarushing): again, after the load
       OnInitWindow();
       return true;
     }
