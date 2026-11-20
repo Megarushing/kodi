@@ -1223,8 +1223,9 @@ constexpr int MAX_KODI_ADDRS = 24;
 constexpr size_t MAX_SCAN_BYTES = 64 * 1024;
 
 struct Range { uintptr_t lo, hi; };
-Range g_ranges[16];
-bool g_rangeIsKodi[16] = {};
+constexpr int MAX_RANGES = 64; // libkodi.so loads after the system libs, so it is near the end
+Range g_ranges[MAX_RANGES];
+bool g_rangeIsKodi[MAX_RANGES] = {};
 int g_rangeCount = 0;
 std::atomic<int64_t> g_heartbeatMs{0};
 std::atomic<pid_t> g_appTid{0};
@@ -1262,7 +1263,7 @@ int CollectRanges(struct dl_phdr_info* info, size_t, void*)
       !strstr(name, "libpython") && !strstr(name, "libutils") && !strstr(name, "libbinder") &&
       !strstr(name, "libgui") && !strstr(name, "libsqlite"))
     return 0;
-  for (int i = 0; i < info->dlpi_phnum && g_rangeCount < 16; i++)
+  for (int i = 0; i < info->dlpi_phnum && g_rangeCount < MAX_RANGES; i++)
   {
     const auto& ph = info->dlpi_phdr[i];
     if (ph.p_type == PT_LOAD && (ph.p_flags & PF_X))
@@ -1332,8 +1333,12 @@ void Watch()
   sa.sa_sigaction = Handler;
   sa.sa_flags = SA_SIGINFO | SA_RESTART;
   const int rc = sigaction(sig, &sa, nullptr);
-  CLog::Log(LOGINFO, "StallWatch: armed (signal {}, sigaction {}, {} code ranges, stack {:#x}-{:#x})",
-            sig, rc, g_rangeCount, g_stackLo, g_stackHi);
+  int kodiRanges = 0;
+  for (int i = 0; i < g_rangeCount; i++)
+    kodiRanges += g_rangeIsKodi[i] ? 1 : 0;
+  CLog::Log(LOGINFO,
+            "StallWatch: armed (signal {}, sigaction {}, {} code ranges, {} libkodi.so, stack {:#x}-{:#x})",
+            sig, rc, g_rangeCount, kodiRanges, g_stackLo, g_stackHi);
   int64_t stallStart = 0, lastReport = 0;
   while (!g_stop)
   {
