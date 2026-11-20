@@ -801,7 +801,9 @@ void CDirectoryProvider::OnTimeout()
   }
   if (settleLeft.count() > 0)
   {
-    m_nextJobTimer.Start(settleLeft);
+    // Inside its own callback the timer is still running, so Start() would refuse (and the list
+    // would never be fetched); RestartAsync() is CTimer's "restarted during callback" path.
+    m_nextJobTimer.RestartAsync(settleLeft);
     return;
   }
 
