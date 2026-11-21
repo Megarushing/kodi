@@ -15,6 +15,7 @@
 #include "GUIFont.h" // for XBFONT_* definitions
 #include "GUIMessage.h"
 #include "ServiceBroker.h"
+#include "WidgetViewport.h"
 #include "guilib/guiinfo/GUIInfoLabels.h"
 #include "input/actions/Action.h"
 #include "input/actions/ActionIDs.h"
@@ -622,6 +623,14 @@ bool CGUIControlGroupList::IsControlFarOffScreen(float pos, const CGUIControl* c
 bool CGUIControlGroupList::IsControlOnScreen(float pos, const CGUIControl *control) const
 {
   return (pos >= m_scroller.GetValue() && pos + Size(control) <= m_scroller.GetValue() + Size());
+}
+
+bool CGUIControlGroupList::IsWidgetRowNearViewport(const CGUIControl* row) const
+{
+  const float offset = GetControlOffset(row);
+  return row->HasFocus() ||
+         (offset >= 0.f && GUI::ShouldUpdateWidgetRow(offset + GetAlignOffset(), Size(row),
+                                                     m_scroller.GetValue(), Size(), false));
 }
 
 void CGUIControlGroupList::CalculateItemGap()

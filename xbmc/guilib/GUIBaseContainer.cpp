@@ -10,11 +10,15 @@
 
 #include "FileItem.h"
 #include "FileItemList.h"
+#include "GUIComponent.h"
+#include "GUIControlGroupList.h"
 #include "GUIInfoManager.h"
 #include "GUIListItemLayout.h"
 #include "GUIMessage.h"
 #include "ServiceBroker.h"
+#include "addons/Skin.h"
 #include "guilib/GUIListItem.h"
+#include "guilib/WindowIDs.h"
 #include "guilib/guiinfo/GUIInfoLabels.h"
 #include "guilib/listproviders/IListProvider.h"
 #include "input/actions/Action.h"
@@ -1154,6 +1158,26 @@ void CGUIBaseContainer::UpdateListProvider(bool forceRefresh /* = false */)
 {
   if (m_listProvider)
   {
+    // AF3 Standard rows are nested under groups numbered 200 above their list IDs.
+    // Allocation runs for the entire window before the scroller has laid out the rows.
+    if ((GetParentID() == WINDOW_HOME || GetParentID() == 11102) && GetID() >= 501 &&
+        GetID() < 580)
+    {
+      for (auto* row = GetParentControl(); row && row->GetParentControl();
+           row = row->GetParentControl())
+      {
+        auto* list = row->GetParentControl();
+        if (list->GetID() != 602 || row->GetID() != GetID() + 200)
+          continue;
+        const auto* groupList = dynamic_cast<const CGUIControlGroupList*>(list);
+        const auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
+        if (groupList && groupList->GetOrientation() == VERTICAL && skin &&
+            skin->ID() == "skin.arctic.fuse.3" &&
+            (forceRefresh || !groupList->IsWidgetRowNearViewport(row)))
+          return;
+        break;
+      }
+    }
     if (m_listProvider->Update(forceRefresh))
     {
       // save the current item
