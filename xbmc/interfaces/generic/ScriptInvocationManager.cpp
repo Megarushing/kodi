@@ -11,6 +11,8 @@
 #include "interfaces/generic/ILanguageInvocationHandler.h"
 #include "interfaces/generic/ILanguageInvoker.h"
 #include "interfaces/generic/LanguageInvokerThread.h"
+#include "ServiceBroker.h"
+#include "messaging/ApplicationMessenger.h"
 #include "threads/SystemClock.h"
 #include "utils/FileUtils.h"
 #include "utils/StringUtils.h"
@@ -25,6 +27,21 @@
 #include <tuple>
 #include <utility>
 #include <vector>
+
+namespace
+{
+// LOCAL PATCH (megarushing): warm plugin invoker pool (add-ons with reuselanguageinvoker=true).
+// Each plugin row otherwise starts a new Python interpreter and re-imports its modules (~1-1.5 s
+// of CPU on a Shield), all under one shared GIL.
+// Max invokers (busy + idle) per plugin script. A row that finds all of them busy waits for one.
+constexpr size_t INVOKER_POOL_MAX_PER_SCRIPT = 4;
+// How long a row waits for a busy invoker to become idle before it starts a new (cold) one.
+constexpr auto INVOKER_POOL_WAIT = std::chrono::milliseconds(4000);
+// An idle invoker unused this long is stopped (frees memory, drops stale module state).
+constexpr auto INVOKER_POOL_IDLE_EXPIRY = std::chrono::seconds(300);
+// A claimed invoker that was not executed within this time becomes claimable again.
+constexpr auto INVOKER_POOL_CLAIM_TIMEOUT = std::chrono::seconds(30);
+} // namespace
 
 #ifdef TARGET_WEBOS
 namespace
@@ -59,6 +76,8 @@ void CScriptInvocationManager::Process()
                   return script.done;
                 });
 
+  PrunePoolLocked();
+
   // we can leave the lock now
   lock.unlock();
 
@@ -75,6 +94,7 @@ void CScriptInvocationManager::Uninitialize()
 
   // it is safe to release early, thread must be in m_scripts too
   m_lastInvokerThread = nullptr;
+  m_invokerPool.clear();
 
   // make sure all scripts are done
   std::vector<LanguageInvokerThread> tempList;
@@ -204,18 +224,83 @@ bool CScriptInvocationManager::HasLanguageInvoker(const std::string &script) con
   return it != m_invocationHandlers.end() && it->second != nullptr;
 }
 
+bool CScriptInvocationManager::IsPooledThreadDoneLocked(const PooledInvoker& entry) const
+{
+  const auto it = m_scripts.find(entry.thread->GetId());
+  return it == m_scripts.end() || it->second.done;
+}
+
+void CScriptInvocationManager::PrunePoolLocked()
+{
+  const auto now = std::chrono::steady_clock::now();
+  std::erase_if(m_invokerPool,
+                [this, now](PooledInvoker& entry)
+                {
+                  if (IsPooledThreadDoneLocked(entry))
+                    return true;
+                  // a claim that never reached ExecutePooled() must not hold its slot forever
+                  if (entry.claimed && now - entry.lastUsed > INVOKER_POOL_CLAIM_TIMEOUT)
+                    entry.claimed = false;
+                  if (!entry.claimed && entry.thread->Reuseable(entry.script) &&
+                      now - entry.lastUsed > INVOKER_POOL_IDLE_EXPIRY)
+                  {
+                    CLog::Log(LOGINFO, "InvokerPool: expire id {} handle {} {}",
+                              entry.thread->GetId(), entry.pluginHandle, entry.script);
+                    entry.thread->Release();
+                    return true;
+                  }
+                  return false;
+                });
+}
+
 int CScriptInvocationManager::GetReusablePluginHandle(const std::string& script)
 {
-  std::unique_lock lock(m_critSection);
-
-  if (m_lastInvokerThread)
+  // Never block the GUI thread: it would freeze rendering while it waits.
+  const auto messenger = CServiceBroker::GetAppMessenger();
+  const bool mayWait = messenger && !messenger->IsProcessThread();
+  const auto start = std::chrono::steady_clock::now();
+  bool waited = false;
+  while (true)
   {
-    if (m_lastInvokerThread->Reuseable(script))
-      return m_lastPluginHandle;
-    m_lastInvokerThread->Release();
-    m_lastInvokerThread = nullptr;
+    {
+      std::unique_lock lock(m_critSection);
+      PrunePoolLocked();
+
+      size_t live = 0;
+      for (auto& entry : m_invokerPool)
+      {
+        if (entry.script != script)
+          continue;
+        ++live;
+        if (!entry.claimed && entry.thread->Reuseable(script))
+        {
+          entry.claimed = true;
+          entry.lastUsed = std::chrono::steady_clock::now();
+          CLog::Log(LOGINFO, "InvokerPool: reuse id {} handle {} waited {} ms {}",
+                    entry.thread->GetId(), entry.pluginHandle,
+                    std::chrono::duration_cast<std::chrono::milliseconds>(entry.lastUsed - start)
+                        .count(),
+                    script);
+          return entry.pluginHandle;
+        }
+      }
+      // room for one more invoker of this script (or waiting is not allowed / took too long):
+      // start a new one
+      if (live < INVOKER_POOL_MAX_PER_SCRIPT || !mayWait ||
+          std::chrono::steady_clock::now() - start >= INVOKER_POOL_WAIT)
+      {
+        if (waited)
+          CLog::Log(LOGINFO, "InvokerPool: no idle invoker after {} ms (live {}), cold start {}",
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - start)
+                        .count(),
+                    live, script);
+        return -1;
+      }
+    }
+    waited = true;
+    KODI::TIME::Sleep(std::chrono::milliseconds(10));
   }
-  return -1;
 }
 
 std::shared_ptr<ILanguageInvoker> CScriptInvocationManager::GetLanguageInvoker(
@@ -229,7 +314,8 @@ std::shared_ptr<ILanguageInvoker> CScriptInvocationManager::GetLanguageInvoker(
     {
       CLog::Log(LOGDEBUG, "{} - Reusing LanguageInvokerThread {} for script {}", __FUNCTION__,
                 m_lastInvokerThread->GetId(), script);
-      m_lastInvokerThread->GetInvoker()->Reset();
+      // LOCAL PATCH (megarushing): no Reset() here. CLanguageInvokerThread::execute() resets the
+      // state under its mutex, after Process() has checked the result of the previous run.
       return m_lastInvokerThread->GetInvoker();
     }
     m_lastInvokerThread->Release();
@@ -262,8 +348,64 @@ int CScriptInvocationManager::ExecuteAsync(
     return -1;
   }
 
+  if (reuseable && pluginHandle >= 0)
+    return ExecutePooled(script, addon, arguments, pluginHandle);
+
   auto invoker = GetLanguageInvoker(script);
   return ExecuteAsync(script, invoker, addon, arguments, reuseable, pluginHandle);
+}
+
+int CScriptInvocationManager::ExecutePooled(const std::string& script,
+                                            const ADDON::AddonPtr& addon,
+                                            const std::vector<std::string>& arguments,
+                                            int pluginHandle)
+{
+  std::unique_lock lock(m_critSection);
+  std::shared_ptr<CLanguageInvokerThread> invokerThread;
+  for (auto& entry : m_invokerPool)
+  {
+    if (entry.claimed && entry.pluginHandle == pluginHandle && entry.script == script)
+    {
+      invokerThread = entry.thread;
+      entry.claimed = false; // execute() below resets its state, so it is not Reuseable() again
+      entry.lastUsed = std::chrono::steady_clock::now();
+      break;
+    }
+  }
+
+  if (invokerThread)
+  {
+    if (addon != nullptr)
+      invokerThread->SetAddon(addon);
+    // execute() takes the thread's mutex, so it runs once the thread waits for its next job
+    invokerThread->Execute(script, arguments);
+    return invokerThread->GetId();
+  }
+
+  std::string extension = URIUtils::GetExtension(script);
+  StringUtils::ToLower(extension);
+  const auto handler = m_invocationHandlers.find(extension);
+  if (handler == m_invocationHandlers.end() || handler->second == nullptr)
+    return -1;
+  auto invoker = handler->second->CreateInvoker();
+  if (invoker == nullptr)
+    return -1;
+
+  invokerThread = std::make_shared<CLanguageInvokerThread>(invoker, this, true);
+  if (addon != nullptr)
+    invokerThread->SetAddon(addon);
+  invokerThread->SetId(m_nextId++);
+
+  LanguageInvokerThread thread = {invokerThread, script, false, true};
+  m_scripts.insert(std::make_pair(invokerThread->GetId(), thread));
+  m_scriptPaths.insert(std::make_pair(script, invokerThread->GetId()));
+  m_invokerPool.push_back(
+      {invokerThread, script, pluginHandle, false, std::chrono::steady_clock::now()});
+  CLog::Log(LOGINFO, "InvokerPool: new id {} handle {} (pool {}) {}", invokerThread->GetId(),
+            pluginHandle, m_invokerPool.size(), script);
+
+  invokerThread->Execute(script, arguments);
+  return invokerThread->GetId();
 }
 
 int CScriptInvocationManager::ExecuteAsync(
@@ -427,6 +569,12 @@ bool CScriptInvocationManager::IsRunning(int scriptId) const
   std::unique_lock lock(m_critSection);
   LanguageInvokerThread invokerThread = getInvokerThread(scriptId);
   if (invokerThread.thread == nullptr)
+    return false;
+
+  // LOCAL PATCH (megarushing): a pooled thread stays alive between runs. Its run is over once the
+  // script is done, even if it never called endOfDirectory (else the caller waits forever).
+  if (invokerThread.pooled && !invokerThread.done &&
+      invokerThread.thread->GetState() >= InvokerStateScriptDone)
     return false;
 
   return !invokerThread.done;

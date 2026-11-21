@@ -52,6 +52,10 @@ bool CLanguageInvokerThread::execute(const std::string &script, const std::vecto
   if (CThread::IsRunning())
   {
     std::unique_lock<std::mutex> lck(m_mutex);
+    // LOCAL PATCH (megarushing): reset here, under the mutex. Process() holds it until it waits,
+    // so it has already checked the previous run's state. A Reset() before that check made
+    // Process() see "not done", drop m_reusable and exit, and the new run never started.
+    m_invoker->Reset();
     m_restart = true;
     m_condition.notify_one();
   }

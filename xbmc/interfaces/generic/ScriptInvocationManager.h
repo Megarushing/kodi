@@ -36,7 +36,9 @@ public:
   std::shared_ptr<ILanguageInvoker> GetLanguageInvoker(const std::string& script);
 
   /*!
-  * \brief Returns addon_handle if last reusable invoker is ready to use.
+  * \brief Claims an idle reusable plugin invoker for the script and returns its addon_handle,
+  * or -1 when none is idle (the caller then gets a new handle and a new invoker).
+  * LOCAL PATCH (megarushing): a pool of warm invokers per plugin script, see InvokerPool below.
   */
   int GetReusablePluginHandle(const std::string& script);
 
@@ -152,11 +154,30 @@ private:
     std::shared_ptr<CLanguageInvokerThread> thread;
     std::string script;
     bool done;
+    bool pooled = false;
   };
+  // LOCAL PATCH (megarushing): warm plugin invokers (reuselanguageinvoker=true), several per
+  // script, each with its own fixed plugin handle. An entry is claimed under m_critSection by
+  // GetReusablePluginHandle() and executed by ExecuteAsync() with that handle.
+  struct PooledInvoker
+  {
+    std::shared_ptr<CLanguageInvokerThread> thread;
+    std::string script;
+    int pluginHandle = -1;
+    bool claimed = false;
+    std::chrono::steady_clock::time_point lastUsed;
+  };
+  void PrunePoolLocked();
+  bool IsPooledThreadDoneLocked(const PooledInvoker& entry) const;
+  std::vector<PooledInvoker> m_invokerPool;
   using LanguageInvokerThreadMap = std::map<int, LanguageInvokerThread>;
   using LanguageInvocationHandlerMap = std::map<std::string, ILanguageInvocationHandler*>;
 
   LanguageInvokerThread getInvokerThread(int scriptId) const;
+  int ExecutePooled(const std::string& script,
+                    const ADDON::AddonPtr& addon,
+                    const std::vector<std::string>& arguments,
+                    int pluginHandle);
 
   LanguageInvocationHandlerMap m_invocationHandlers;
   LanguageInvokerThreadMap m_scripts;
