@@ -34,6 +34,7 @@ public:
   void Reset() override;
   void FreeResources(bool immediately) override;
   void CancelPendingUpdate() override; // LOCAL PATCH (megarushing)
+  void SetStartupDelayMs(int delay) override;
   bool OnClick(const std::shared_ptr<CGUIListItem>& item) override;
   bool OnInfo(const std::shared_ptr<CGUIListItem>& item) override;
   bool OnContextMenu(const std::shared_ptr<CGUIListItem>& item) override;

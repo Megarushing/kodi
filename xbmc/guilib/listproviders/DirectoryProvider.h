@@ -15,6 +15,7 @@
 #include "threads/Timer.h"
 
 #include <chrono>
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
@@ -76,6 +77,7 @@ public:
   int GetInitialItem(const std::vector<std::shared_ptr<CGUIListItem>>& items) const override;
   void FreeResources(bool immediately) override;
   void CancelPendingUpdate() override; // LOCAL PATCH (megarushing)
+  void SetStartupDelayMs(int delay) override { m_startupDelayMs.store(delay, std::memory_order_relaxed); }
 
   // LOCAL PATCH (megarushing): settle delay. A window records when it was opened; its plugin://
   // lists start fetching only once it has stayed open for WIDGET_SETTLE_TIME, so tabs that are
@@ -107,6 +109,7 @@ private:
   UpdateState m_updateState{UpdateState::OK};
   unsigned int m_jobID = 0;
   bool m_jobPending{false};
+  std::atomic<int> m_startupDelayMs{0};
   std::chrono::time_point<std::chrono::system_clock> m_lastJobStartedAt;
   CTimer m_nextJobTimer;
 

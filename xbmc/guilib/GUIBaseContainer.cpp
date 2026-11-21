@@ -1159,7 +1159,7 @@ void CGUIBaseContainer::UpdateListProvider(bool forceRefresh /* = false */)
   if (m_listProvider)
   {
     // AF3 Standard card lists are direct children of the scroller, alongside their labels.
-    // Do not change control visibility, order, or focus when deferring provider work.
+    // Set the provider's bounded delay before updating it; never gate the update on focus.
     if ((GetParentID() == WINDOW_HOME || GetParentID() == 11102) && GetID() >= 501 &&
         GetID() < 580)
     {
@@ -1169,9 +1169,8 @@ void CGUIBaseContainer::UpdateListProvider(bool forceRefresh /* = false */)
         const auto* groupList = dynamic_cast<const CGUIControlGroupList*>(list);
         const auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
         if (groupList && groupList->GetOrientation() == VERTICAL && skin &&
-            skin->ID() == "skin.arctic.fuse.3" &&
-            !groupList->IsWidgetRowNearViewport(this))
-          return;
+            skin->ID() == "skin.arctic.fuse.3")
+          m_listProvider->SetStartupDelayMs(groupList->GetWidgetHeadStartMs(this));
       }
     }
     if (m_listProvider->Update(forceRefresh))

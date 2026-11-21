@@ -498,7 +498,7 @@ std::map<int, std::chrono::steady_clock::time_point>& WindowInitTimes()
 }
 
 // Time left before a list of this window may start a plugin fetch; zero when it may start now.
-std::chrono::milliseconds SettleTimeLeft(int windowID)
+std::chrono::milliseconds SettleTimeLeft(int windowID, int startupDelayMs)
 {
   std::lock_guard lock(SettleMutex());
   const auto it = WindowInitTimes().find(windowID);
@@ -506,8 +506,8 @@ std::chrono::milliseconds SettleTimeLeft(int windowID)
     return std::chrono::milliseconds{0};
   const auto openFor = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::steady_clock::now() - it->second);
-  return openFor >= WIDGET_SETTLE_TIME ? std::chrono::milliseconds{0}
-                                       : WIDGET_SETTLE_TIME - openFor;
+  const auto deadline = WIDGET_SETTLE_TIME + std::chrono::milliseconds{startupDelayMs};
+  return openFor >= deadline ? std::chrono::milliseconds{0} : deadline - openFor;
 }
 } // namespace
 
@@ -605,7 +605,7 @@ bool CDirectoryProvider::Update(bool forceRefresh)
           // pending). Leaving the window first clears the pending flag and invalidates the list
           // in CancelPendingUpdate(), so it is fetched on the next visit and never left empty.
           if (StringUtils::StartsWith(m_currentUrl, "plugin://"))
-            settleDelay = SettleTimeLeft(GetParentId());
+            settleDelay = SettleTimeLeft(GetParentId(), m_startupDelayMs.load(std::memory_order_relaxed));
           if (settleDelay.count() > 0)
           {
             startJob = false;
@@ -797,7 +797,7 @@ void CDirectoryProvider::OnTimeout()
     // LOCAL PATCH (megarushing): settle delay - the window may have been noted again after its
     // load, so re-check and wait the rest instead of starting early.
     if (startJob && !m_jobID && StringUtils::StartsWith(m_currentUrl, "plugin://"))
-      settleLeft = SettleTimeLeft(GetParentId());
+      settleLeft = SettleTimeLeft(GetParentId(), m_startupDelayMs.load(std::memory_order_relaxed));
   }
   if (settleLeft.count() > 0)
   {

@@ -9,10 +9,8 @@
 
 namespace KODI::GUI
 {
-constexpr bool ShouldUpdateWidgetRow(int rowIndex, int focusedIndex)
+constexpr int WidgetHeadStartMs(int rowIndex)
 {
-  // Empty AF3 rows occupy no layout space. Use configured order so their collapsed
-  // geometry cannot make every unloaded row appear to be just below the viewport.
-  return rowIndex >= focusedIndex - 2 && rowIndex <= focusedIndex + 3;
+  return rowIndex >= 4 ? 3000 : 0;
 }
 } // namespace KODI::GUI

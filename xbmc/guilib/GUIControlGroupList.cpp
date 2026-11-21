@@ -625,23 +625,19 @@ bool CGUIControlGroupList::IsControlOnScreen(float pos, const CGUIControl *contr
   return (pos >= m_scroller.GetValue() && pos + Size(control) <= m_scroller.GetValue() + Size());
 }
 
-bool CGUIControlGroupList::IsWidgetRowNearViewport(const CGUIControl* row) const
+int CGUIControlGroupList::GetWidgetHeadStartMs(const CGUIControl* row) const
 {
   int index = 0;
-  int rowIndex = -1;
-  int focusedIndex = 0;
   for (const auto* child : m_children)
   {
     if (child->GetID() < 501 || child->GetID() >= 580 ||
         dynamic_cast<const CGUIBaseContainer*>(child) == nullptr)
       continue;
     if (child == row)
-      rowIndex = index;
-    if (child->HasFocus())
-      focusedIndex = index;
+      return GUI::WidgetHeadStartMs(index);
     ++index;
   }
-  return rowIndex < 0 || GUI::ShouldUpdateWidgetRow(rowIndex, focusedIndex);
+  return 0;
 }
 
 void CGUIControlGroupList::CalculateItemGap()

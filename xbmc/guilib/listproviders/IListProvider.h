@@ -75,6 +75,7 @@ public:
   /*! LOCAL PATCH (megarushing): drop a fetch that has not finished yet (the window was left),
    so it does not keep a job worker busy; the next Update() fetches again. */
   virtual void CancelPendingUpdate() {}
+  virtual void SetStartupDelayMs(int delay) {}
 
   /*! \brief Click event on an item.
    \param item the item that was clicked.

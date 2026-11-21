@@ -64,7 +64,7 @@ public:
   float GetScrollOffset() const { return m_scroller.GetValue(); }
   void SetScrollOffset(float offset);
   ORIENTATION GetOrientation() const { return m_orientation; }
-  bool IsWidgetRowNearViewport(const CGUIControl* row) const;
+  int GetWidgetHeadStartMs(const CGUIControl* row) const;
 
   // based on grouplist orientation pick one value as minSize;
   void SetMinSize(float minWidth, float minHeight);

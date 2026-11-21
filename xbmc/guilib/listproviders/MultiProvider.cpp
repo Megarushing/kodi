@@ -99,6 +99,12 @@ void CMultiProvider::CancelPendingUpdate()
     provider->CancelPendingUpdate();
 }
 
+void CMultiProvider::SetStartupDelayMs(int delay)
+{
+  for (const auto& provider : m_providers)
+    provider->SetStartupDelayMs(delay);
+}
+
 bool CMultiProvider::OnClick(const std::shared_ptr<CGUIListItem>& item)
 {
   std::unique_lock lock(m_section);
