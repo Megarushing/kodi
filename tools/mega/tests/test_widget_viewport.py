@@ -18,12 +18,13 @@ class WidgetViewportTest(unittest.TestCase):
 #include "WidgetViewport.h"
 using KODI::GUI::ShouldUpdateWidgetRow;
 int main() {
-  assert(ShouldUpdateWidgetRow(580, 550, 0, 2100, false));
-  assert(ShouldUpdateWidgetRow(2700, 550, 0, 2100, false));
-  assert(!ShouldUpdateWidgetRow(3300, 550, 0, 2100, false));
-  assert(ShouldUpdateWidgetRow(3300, 550, 800, 2100, false));
-  assert(ShouldUpdateWidgetRow(7000, 550, 0, 2100, true));
-  assert(!ShouldUpdateWidgetRow(580, 550, 3000, 2100, false));
+  assert(ShouldUpdateWidgetRow(0, 0));
+  assert(ShouldUpdateWidgetRow(3, 0));
+  assert(!ShouldUpdateWidgetRow(4, 0));
+  assert(ShouldUpdateWidgetRow(4, 1));
+  assert(ShouldUpdateWidgetRow(9, 8));
+  assert(ShouldUpdateWidgetRow(7, 8));
+  assert(!ShouldUpdateWidgetRow(3, 8));
 }
 '''
             result = subprocess.run(['c++', '-std=c++17', '-I', str(SOURCE), '-x', 'c++',

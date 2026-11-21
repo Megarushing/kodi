@@ -1158,24 +1158,20 @@ void CGUIBaseContainer::UpdateListProvider(bool forceRefresh /* = false */)
 {
   if (m_listProvider)
   {
-    // AF3 Standard rows are nested under groups numbered 200 above their list IDs.
-    // Allocation runs for the entire window before the scroller has laid out the rows.
+    // AF3 Standard card lists are direct children of the scroller, alongside their labels.
+    // Do not change control visibility, order, or focus when deferring provider work.
     if ((GetParentID() == WINDOW_HOME || GetParentID() == 11102) && GetID() >= 501 &&
         GetID() < 580)
     {
-      for (auto* row = GetParentControl(); row && row->GetParentControl();
-           row = row->GetParentControl())
+      const auto* list = GetParentControl();
+      if (list && list->GetID() == 602)
       {
-        auto* list = row->GetParentControl();
-        if (list->GetID() != 602 || row->GetID() != GetID() + 200)
-          continue;
         const auto* groupList = dynamic_cast<const CGUIControlGroupList*>(list);
         const auto skin = CServiceBroker::GetGUI()->GetSkinInfo();
         if (groupList && groupList->GetOrientation() == VERTICAL && skin &&
             skin->ID() == "skin.arctic.fuse.3" &&
-            (forceRefresh || !groupList->IsWidgetRowNearViewport(row)))
+            !groupList->IsWidgetRowNearViewport(this))
           return;
-        break;
       }
     }
     if (m_listProvider->Update(forceRefresh))

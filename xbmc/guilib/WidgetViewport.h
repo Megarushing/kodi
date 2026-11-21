@@ -9,15 +9,10 @@
 
 namespace KODI::GUI
 {
-constexpr bool ShouldUpdateWidgetRow(float rowTop,
-                                     float rowHeight,
-                                     float scroll,
-                                     float viewport,
-                                     bool focused)
+constexpr bool ShouldUpdateWidgetRow(int rowIndex, int focusedIndex)
 {
-  // Prefetch half a viewport on either side so remote navigation need not wait at the edge.
-  const float lookahead = viewport * 0.5f;
-  return focused || (rowTop + rowHeight > scroll - lookahead &&
-                     rowTop < scroll + viewport + lookahead);
+  // Empty AF3 rows occupy no layout space. Use configured order so their collapsed
+  // geometry cannot make every unloaded row appear to be just below the viewport.
+  return rowIndex >= focusedIndex - 2 && rowIndex <= focusedIndex + 3;
 }
 } // namespace KODI::GUI
