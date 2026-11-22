@@ -1239,6 +1239,19 @@ void CAdvancedSettings::ParseSettingsFile(const std::string &file)
 
   XMLUtils::GetBoolean(pRootElement, "alwaysontop", m_alwaysOnTop);
 
+  // <invokerpool><prewarm>plugin://...</prewarm></invokerpool> (LOCAL PATCH)
+  const TiXmlElement* pInvokerPool = pRootElement->FirstChildElement("invokerpool");
+  if (pInvokerPool)
+  {
+    m_invokerPrewarmUrls.clear();
+    for (const TiXmlElement* pUrl = pInvokerPool->FirstChildElement("prewarm"); pUrl;
+         pUrl = pUrl->NextSiblingElement("prewarm"))
+    {
+      if (pUrl->FirstChild() && pUrl->FirstChild()->Value())
+        m_invokerPrewarmUrls.emplace_back(pUrl->FirstChild()->Value());
+    }
+  }
+
   const TiXmlElement* pPVR = pRootElement->FirstChildElement("pvr");
   if (pPVR)
   {

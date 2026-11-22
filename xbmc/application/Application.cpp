@@ -819,6 +819,28 @@ bool CApplication::Initialize()
   if (!profileManager->UsingLoginScreen())
     CServiceBroker::GetServiceAddons().Start();
 
+  // Pre-warm pooled plugin invokers while the startup window shows: each listing imports the
+  // add-on once, so the first rows of the home window find a warm interpreter (LOCAL PATCH)
+  for (const std::string& url : CServiceBroker::GetSettingsComponent()
+                                    ->GetAdvancedSettings()
+                                    ->m_invokerPrewarmUrls)
+  {
+    CServiceBroker::GetJobManager()->Submit(
+        [url]
+        {
+          const auto start = std::chrono::steady_clock::now();
+          CFileItemList items;
+          const bool ok = XFILE::CDirectory::GetDirectory(url, items, "", XFILE::DIR_FLAG_DEFAULTS);
+          CLog::Log(LOGINFO, "InvokerPool: prewarm {} {} items in {} ms {}", ok ? "ok" : "failed",
+                    items.Size(),
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - start)
+                        .count(),
+                    url);
+        },
+        CJob::PRIORITY_NORMAL);
+  }
+
   CLog::Log(LOGINFO, "initialize done");
 
   const auto appPower = GetComponent<CApplicationPowerHandling>();
