@@ -1,0 +1,13 @@
+CRASH FIX - how to monitor and revert
+Crash signature: at Kodi quit, 'Fatal signal 6 ... exiting due to SIG_DFL handler for signal 11',
+  top frames /vendor/lib64/libnvglsi.so NvCommon::NvMutex::InternalAcquire, plus
+  'FORTIFY: pthread_mutex_lock called on a destroyed mutex'. Logged right after 'android_main: Exiting'.
+Seen: living Shield (64-bit) on almost every quit 2026-11-18..11-23 (73 tombstones). Upstream xbmc/xbmc#28481;
+  PR #28485 (already in mega) did not stop it.
+Cause: exit(0) in android_main ran static destructors/atexit while libnvglsi's own threads still used its mutexes.
+Fix: _exit(0) - the process still ends (fresh libraries next start); static teardown skipped.
+  Everything Kodi must save is done earlier (CAppEnvironment::TearDown closes settings + log).
+Evidence: kodi-customizations/crash-evidence/2026-11-23-1225-exit-crash-libnvglsi/
+Monitor: after quits, kodictl sh <shield> "logcat -d -b crash" | grep -c NvMutex must not grow; also check
+  settings/watched state changed just before a quit are still there after restart (would show a missed save).
+Revert: git revert ef31d0b567 (file xbmc/platform/android/activity/android_main.cpp only).
