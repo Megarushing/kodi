@@ -105,7 +105,13 @@ extern void android_main(struct android_app* state)
   // those loaded libs in the state they were in when we quit Kodi last time
   // which will lead to crashes because of global/static classes that haven't
   // been properly uninitialized
-  exit(0);
+  // LOCAL PATCH (megarushing): _exit, not exit. The process still ends (so the libraries are
+  // unloaded), but static destructors and atexit handlers are skipped: NVIDIA's libnvglsi
+  // destroyed its mutexes there while its own threads still used them -> SIGSEGV in
+  // NvMutex::InternalAcquire on almost every quit on the Shield (xbmc/xbmc#28481; PR #28485
+  // is already in). Everything Kodi must save is done before this point (CAppEnvironment::TearDown
+  // closes settings and the log).
+  _exit(0);
 }
 
 extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved)
