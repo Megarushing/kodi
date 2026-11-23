@@ -102,16 +102,12 @@ bool InfoExpression::InfoAssociativeGroup::Evaluate(int contextWindow, const CGU
   std::list<InfoSubexpressionPtr>::iterator it = m_children.begin();
   bool use_and = (m_type == NODE_AND);
   bool result = use_and ^ (*it)->Evaluate(contextWindow, item);
+  // LOCAL PATCH (megarushing): no move-to-front of the deciding child. That reorder wrote the
+  // shared list on every evaluation, and the GUI thread and a Python getInfoLabel() thread can
+  // evaluate the same skin expression at once: double free, Scudo abort in this function
+  // (living Shield 2026-11-21 16:20 and 2026-11-23 12:14). Read-only evaluation is safe.
   while (!result && ++it != last)
-  {
     result = use_and ^ (*it)->Evaluate(contextWindow, item);
-    if (result)
-    {
-      /* Move this child to the head of the list so we evaluate faster next time */
-      m_children.push_front(*it);
-      m_children.erase(it);
-    }
-  }
   return use_and ^ result;
 }
 
