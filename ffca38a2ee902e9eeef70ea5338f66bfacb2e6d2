@@ -1,0 +1,12 @@
+FREEZE FIX (cherry-pick of upstream xbmc/xbmc PR #29954 = 40f3efed3f..ffca38a2ee) - how to monitor and revert
+Freeze: Kodi quit during startup (services still starting) never ends: main thread in CApplication::Cleanup ->
+  CScriptInvocationManager::Uninitialize -> CLanguageInvokerThread::stop -> CThread::StopThread (join without limit),
+  after 'script didn't stop in 5 seconds - let's kill it' (JellyCon, Elementum, Jacktook services).
+  Repro 2026-11-23 living Shield: quit 3 s after start -> 5 of 5 hung (with and without pre-warm).
+  StallWatch: 'main loop stalled N ms' growing forever after 'Unloaded skin'. Upstream issue xbmc/xbmc#29953.
+Fix: upstream bounded wait (5 s, 1 s for failed scripts) for all platforms; our webOS-only copy of the same
+  wait is merged into it (one copy). webOS keeps its own extra lines (shared deadline, try_lock, IsStopping freeze).
+Evidence: kodi-customizations/crash-evidence/2026-11-23-1233-ef31-startup-freeze/ ; repro ~/tmp/kodi-widget-priority/quit-repro.sh 3 3
+Monitor: kodi.log at quit shows 'CScriptInvocationManager: script ... did not stop, not waiting for it' instead of a
+  hang; StallWatch must not report >30 s stalls after 'Unloaded skin'. LG TVs: re-test quit at next webOS build.
+Revert: git revert ffca38a2ee 0f1385e188 87faecb86a ab9ee22469 40f3efed3f (xbmc/interfaces/generic + python, ServiceManager.cpp).
