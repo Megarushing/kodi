@@ -1,0 +1,12 @@
+CRASH FIX - how to monitor and revert
+Crash signature: Scudo abort 'invalid chunk state when deallocating', stack
+  XBMCAddon::xbmc::getInfoLabel -> CSkinVariableString::GetValue -> InfoExpression::Update
+  -> InfoExpression::InfoAssociativeGroup::Evaluate -> free (thread = a Python add-on).
+Seen: living Shield 2026-11-21 16:20, 2026-11-23 12:14 (before this commit).
+Cause: Evaluate moved the deciding child to the front of m_children on every call; GUI thread and
+  Python getInfoLabel thread evaluated the same skin expression at once -> double free.
+Evidence: kodi-customizations/crash-evidence/2026-11-23-1214-infoexpression-double-free/
+Monitor: on each Shield, kodictl sh <shield> "logcat -d -b crash" | grep InfoAssociativeGroup
+  -> any hit on a build containing this commit = fix did not work.
+Cost of the fix: no move-to-front speed-up for skin OR/AND expressions (read-only evaluation).
+Revert: git revert db025d8034 (file xbmc/interfaces/info/InfoExpression.cpp only).
