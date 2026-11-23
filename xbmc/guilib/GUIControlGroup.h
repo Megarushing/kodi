@@ -76,6 +76,7 @@ public:
   //! keeping their items (see CGUIControlGroupList::Process).
   void CancelContainerListUpdates(); // LOCAL PATCH (megarushing)
   void FreeContainerItemImages();
+  void FollowHiddenListContent() override; // LOCAL PATCH (megarushing)
 
 #ifdef _DEBUG
   void DumpTextureUse() override;

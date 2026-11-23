@@ -229,6 +229,9 @@ public:
   bool HasVisibleCondition() const { return m_visibleCondition != NULL; }
   void SetEnableCondition(const std::string &expression);
   virtual void UpdateVisibility(const CGUIListItem *item);
+  //! LOCAL PATCH (megarushing): called instead of Process while hidden; containers inside let an
+  //! empty list follow a content URL change (see CDirectoryProvider::EmptyUrlChanged)
+  virtual void FollowHiddenListContent() {}
   virtual void SetInitialVisibility();
   virtual void SetEnabled(bool bEnable);
   virtual void SetInvalid() { m_bInvalidated = true; }

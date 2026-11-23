@@ -9,10 +9,15 @@
 
 #include "addons/AddonManager.h"
 #include "addons/addoninfo/AddonType.h"
+#include "ServiceBroker.h"
 #include "interfaces/generic/ScriptInvocationManager.h"
+#include "settings/AdvancedSettings.h"
+#include "settings/SettingsComponent.h"
 #include "utils/StringUtils.h"
 #include "utils/log.h"
 
+#include <algorithm>
+#include <chrono>
 #include <mutex>
 
 
@@ -30,6 +35,7 @@ CServiceAddonManager::CServiceAddonManager(CAddonMgr& addonMgr) :
 
 CServiceAddonManager::~CServiceAddonManager()
 {
+  StopDeferredStart();
   m_addonMgr.Events().Unsubscribe(this);
   m_addonMgr.UnloadEvents().Unsubscribe(this);
 }
@@ -60,11 +66,49 @@ void CServiceAddonManager::Start()
   VECADDONS addons;
   if (m_addonMgr.GetAddons(addons, AddonType::SERVICE))
   {
+    // LOCAL PATCH (megarushing): services named in advancedsettings <serviceaddons><defer> start
+    // <delay> ms later on their own thread, so the home window's rows get the Python lock first
+    // (living Shield profile 2026-11-23: Python flat at ~1 core while 2 of 4 cores idle).
+    const auto settings = CServiceBroker::GetSettingsComponent()->GetAdvancedSettings();
+    const int delayMs = settings->m_serviceDeferMs;
+    const auto& deferIds = settings->m_serviceDeferIds;
+    VECADDONS later;
     for (const auto& addon : addons)
     {
-      Start(addon);
+      if (delayMs > 0 && std::ranges::find(deferIds, addon->ID()) != deferIds.end())
+        later.emplace_back(addon);
+      else
+        Start(addon);
+    }
+    if (!later.empty())
+    {
+      CLog::Log(LOGINFO, "CServiceAddonManager: deferring {} services by {} ms", later.size(),
+                delayMs);
+      StopDeferredStart();
+      m_deferStop.Reset();
+      m_deferThread = std::thread(
+          [this, later, delayMs]
+          {
+            if (m_deferStop.Wait(std::chrono::milliseconds(delayMs)))
+              return; // Kodi is stopping the services
+            for (const auto& addon : later)
+            {
+              if (m_deferStop.Wait(std::chrono::milliseconds(0)))
+                return;
+              if (!m_addonMgr.IsAddonDisabled(addon->ID()))
+                Start(addon);
+            }
+            CLog::Log(LOGINFO, "CServiceAddonManager: started {} deferred services", later.size());
+          });
     }
   }
+}
+
+void CServiceAddonManager::StopDeferredStart()
+{
+  m_deferStop.Set();
+  if (m_deferThread.joinable())
+    m_deferThread.join();
 }
 
 void CServiceAddonManager::Start(const std::string& addonId)
@@ -100,6 +144,7 @@ void CServiceAddonManager::Start(const AddonPtr& addon)
 
 void CServiceAddonManager::Stop()
 {
+  StopDeferredStart(); // LOCAL PATCH (megarushing): no deferred start after this
   m_addonMgr.Events().Unsubscribe(this);
   m_addonMgr.UnloadEvents().Unsubscribe(this);
   std::unique_lock lock(m_criticalSection);

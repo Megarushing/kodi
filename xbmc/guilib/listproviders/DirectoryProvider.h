@@ -66,6 +66,7 @@ public:
   // Implementation of IListProvider
   std::unique_ptr<IListProvider> Clone() override;
   bool Update(bool forceRefresh) override;
+  bool EmptyUrlChanged() override; // LOCAL PATCH (megarushing)
   void Fetch(std::vector<std::shared_ptr<CGUIListItem>>& items) override;
   void Reset() override;
   bool OnClick(const std::shared_ptr<CGUIListItem>& item) override;

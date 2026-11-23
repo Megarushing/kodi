@@ -1095,6 +1095,13 @@ void CGUIBaseContainer::StartPageChangeTimer()
   m_pageChangeTimer.StartZero();
 }
 
+// LOCAL PATCH (megarushing): an empty list in a hidden group still follows a content URL change.
+void CGUIBaseContainer::FollowHiddenListContent()
+{
+  if (m_listProvider && m_listProvider->EmptyUrlChanged())
+    UpdateListProvider();
+}
+
 void CGUIBaseContainer::UpdateVisibility(const CGUIListItem *item)
 {
   CGUIControl::UpdateVisibility(item);

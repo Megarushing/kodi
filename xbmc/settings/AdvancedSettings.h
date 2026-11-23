@@ -245,6 +245,9 @@ class CAdvancedSettings : public ISettingCallback, public ISettingsHandler
     std::vector<std::string> m_allExcludeFromScanRegExps;
     //! plugin:// URLs listed once in the background at startup so warm pooled invokers wait for the first window (LOCAL PATCH)
     std::vector<std::string> m_invokerPrewarmUrls;
+    //! <serviceaddons><delay>ms</delay><defer>addon id</defer>...: these services start delay ms after the rest (LOCAL PATCH)
+    int m_serviceDeferMs{0};
+    std::vector<std::string> m_serviceDeferIds;
     std::vector<std::string> m_moviesExcludeFromScanRegExps;
     std::vector<std::string> m_tvshowExcludeFromScanRegExps;
     std::vector<std::string> m_audioExcludeFromListingRegExps;

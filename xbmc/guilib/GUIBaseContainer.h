@@ -57,6 +57,7 @@ public:
   void CancelPendingListUpdate(); // LOCAL PATCH (megarushing): drop a queued widget fetch of an off-screen row
   void FreeItemImages();
   void UpdateVisibility(const CGUIListItem *item = NULL) override;
+  void FollowHiddenListContent() override; // LOCAL PATCH (megarushing)
   void AssignDepth() override;
 
   virtual unsigned int GetRows() const;

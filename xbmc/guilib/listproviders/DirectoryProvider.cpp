@@ -994,6 +994,24 @@ int CDirectoryProvider::GetInitialItem(
   return std::max(KODI::VIDEO::GUILIB::GetNextUnwatchedIndex(entries), 0);
 }
 
+// LOCAL PATCH (megarushing): a list hidden because it is empty (Arctic Fuse: row group visible only
+// with items or while updating) is never processed, so it never sees its content URL change.
+// Seen 2026-11-23: Trakt rows fetched before TraktHub.Ready was set failed with "info=..." and
+// stayed empty until restart. Only a list that already fetched and holds nothing is checked.
+bool CDirectoryProvider::EmptyUrlChanged()
+{
+  {
+    std::unique_lock lock(m_section);
+    if (m_currentUrl.empty() || !m_items.empty() || m_jobID || m_jobPending ||
+        m_updateState == UpdateState::INVALIDATED)
+      return false;
+  }
+  // Evaluated outside m_section - see the lock order rule at the top of this file.
+  const std::string value{m_url.GetLabel(GetParentId(), false)};
+  std::unique_lock lock(m_section);
+  return value != m_currentUrl;
+}
+
 bool CDirectoryProvider::UpdateURL()
 {
   // Evaluated before m_section is taken - see the lock order rule at the top of this file.

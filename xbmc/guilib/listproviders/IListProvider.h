@@ -76,6 +76,11 @@ public:
    so it does not keep a job worker busy; the next Update() fetches again. */
   virtual void CancelPendingUpdate() {}
 
+  /*! \brief LOCAL PATCH (megarushing): true when an earlier fetch left the list empty and the
+   content URL now evaluates to something else. Used for lists inside hidden groups, which Kodi
+   never updates: a row that hides while empty would otherwise never see its new URL. */
+  virtual bool EmptyUrlChanged() { return false; }
+
   /*! \brief Click event on an item.
    \param item the item that was clicked.
    \return true if the click was handled, false otherwise.

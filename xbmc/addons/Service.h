@@ -11,6 +11,9 @@
 #include "addons/Addon.h"
 #include "addons/AddonEvents.h"
 #include "threads/CriticalSection.h"
+#include "threads/Event.h"
+
+#include <thread>
 
 namespace ADDON
 {
@@ -56,5 +59,9 @@ namespace ADDON
     CCriticalSection m_criticalSection;
     /** add-on id -> script id */
     std::map<std::string, int, std::less<>> m_services;
+    // LOCAL PATCH (megarushing): deferred start of the advancedsettings <serviceaddons> list
+    void StopDeferredStart();
+    CEvent m_deferStop{true};
+    std::thread m_deferThread;
   };
 }

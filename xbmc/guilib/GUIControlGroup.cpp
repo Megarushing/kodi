@@ -575,6 +575,14 @@ void CGUIControlGroup::DumpTextureUse()
 #endif
 
 // LOCAL PATCH (megarushing): see header.
+// LOCAL PATCH (megarushing): a hidden group is not processed; pass the check to its lists so an
+// empty row that hid itself still sees its content URL change (CDirectoryProvider::EmptyUrlChanged).
+void CGUIControlGroup::FollowHiddenListContent()
+{
+  for (auto* control : m_children)
+    control->FollowHiddenListContent();
+}
+
 void CGUIControlGroup::FreeContainerItemImages()
 {
   for (CGUIControl* child : m_children)

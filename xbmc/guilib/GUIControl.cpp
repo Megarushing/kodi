@@ -168,6 +168,8 @@ void CGUIControl::DoProcess(unsigned int currentTime, CDirtyRegionList &dirtyreg
       CServiceBroker::GetWinSystem()->GetGfxContext().RestoreCameraPosition();
     CServiceBroker::GetWinSystem()->GetGfxContext().RemoveTransform();
   }
+  else
+    FollowHiddenListContent(); // LOCAL PATCH (megarushing): see CDirectoryProvider::EmptyUrlChanged
 
   UpdateControlStats();
 

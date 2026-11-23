@@ -1252,6 +1252,22 @@ void CAdvancedSettings::ParseSettingsFile(const std::string &file)
     }
   }
 
+  // <serviceaddons><delay>25000</delay><defer>addon id</defer>...</serviceaddons> (LOCAL PATCH)
+  // Listed service add-ons start delay ms after the others, so the first window's rows get the
+  // Python lock first. Services not listed (and new ones) start as before.
+  const TiXmlElement* pServiceAddons = pRootElement->FirstChildElement("serviceaddons");
+  if (pServiceAddons)
+  {
+    XMLUtils::GetInt(pServiceAddons, "delay", m_serviceDeferMs, 0, 300000);
+    m_serviceDeferIds.clear();
+    for (const TiXmlElement* pId = pServiceAddons->FirstChildElement("defer"); pId;
+         pId = pId->NextSiblingElement("defer"))
+    {
+      if (pId->FirstChild() && pId->FirstChild()->Value())
+        m_serviceDeferIds.emplace_back(pId->FirstChild()->Value());
+    }
+  }
+
   const TiXmlElement* pPVR = pRootElement->FirstChildElement("pvr");
   if (pPVR)
   {
