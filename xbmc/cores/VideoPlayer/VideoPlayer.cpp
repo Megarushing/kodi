@@ -1448,8 +1448,12 @@ void CVideoPlayer::Prepare()
     cb->RequestVideoSettings(fileItem);
   });
 
+  // LOCAL PATCH (megarushing): keep this thread's error lines while opening, so the
+  // "Playback failed" box can say why (CLog::BeginErrorCapture in utils/log.h)
+  CLog::BeginErrorCapture();
   if (!OpenInputStream())
   {
+    CLog::SetPlaybackError(CLog::EndErrorCapture());
     m_bAbortRequest = true;
     m_error = true;
     return;
@@ -1476,10 +1480,12 @@ void CVideoPlayer::Prepare()
 
   if (!OpenDemuxStream())
   {
+    CLog::SetPlaybackError(CLog::EndErrorCapture());
     m_bAbortRequest = true;
     m_error = true;
     return;
   }
+  CLog::EndErrorCapture();
 
   if (m_processInfo)
     m_processInfo->SetStateStreaming(EvaluateIsStreaming());

@@ -153,6 +153,15 @@ public:
       ##__VA_ARGS__)
 #endif
 
+  // LOCAL PATCH (megarushing): the "Playback failed" box shows the reason.
+  // While a capture runs on a thread, the ERROR/FATAL lines that thread logs are kept
+  // (first 3, each cut to 200 chars). EndErrorCapture() stops it and returns them.
+  static void BeginErrorCapture();
+  static std::string EndErrorCapture();
+  // Hand-over from the player thread to the error box (cleared on read, 60 s max age)
+  static void SetPlaybackError(const std::string& reason);
+  static std::string TakePlaybackError();
+
 private:
   static CLog& GetInstance();
 

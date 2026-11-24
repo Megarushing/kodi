@@ -442,6 +442,7 @@ void CApplicationPlayerCallback::OnPlayBackError()
   //@todo Playlists can be continued by calling OnPlaybackEnded instead
   // open error dialog
   CGUIMessage msg(GUI_MSG_PLAYBACK_ERROR, 0, 0);
+  msg.SetStringParam(CLog::TakePlaybackError()); // LOCAL PATCH (megarushing): reason for the box
   CServiceBroker::GetGUI()->GetWindowManager().SendThreadMessage(msg);
   OnPlayBackStopped();
 }

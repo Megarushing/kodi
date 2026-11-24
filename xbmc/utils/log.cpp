@@ -23,7 +23,11 @@
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 
+#include <chrono>
 #include <cstring>
+#include <memory>
+#include <mutex>
+#include <new>
 #include <set>
 
 #include <spdlog/sinks/basic_file_sink.h>
@@ -308,6 +312,69 @@ spdlog::level::level_enum CLog::MapLogLevel(int level)
   return spdlog::level::info;
 }
 
+// LOCAL PATCH (megarushing): error capture for the "Playback failed" box (see log.h)
+namespace
+{
+constexpr size_t ERROR_CAPTURE_LINES = 3;
+constexpr size_t ERROR_CAPTURE_CHARS = 200;
+thread_local std::vector<std::string>* tlsErrorCapture = nullptr;
+std::mutex playbackErrorMutex;
+std::string playbackError;
+std::chrono::steady_clock::time_point playbackErrorTime;
+
+void CaptureError(spdlog::level::level_enum level, const std::string& message)
+{
+  if (!tlsErrorCapture || level < spdlog::level::err ||
+      tlsErrorCapture->size() >= ERROR_CAPTURE_LINES)
+    return;
+  try
+  {
+    std::string line = message.substr(0, message.find('\n'));
+    if (line.size() > ERROR_CAPTURE_CHARS)
+      line = line.substr(0, ERROR_CAPTURE_CHARS - 3) + "...";
+    for (const auto& seen : *tlsErrorCapture)
+      if (seen == line)
+        return;
+    tlsErrorCapture->push_back(std::move(line));
+  }
+  catch (...) // never let the capture break logging (e.g. out of memory)
+  {
+  }
+}
+} // namespace
+
+void CLog::BeginErrorCapture()
+{
+  delete tlsErrorCapture;
+  tlsErrorCapture = new (std::nothrow) std::vector<std::string>();
+}
+
+std::string CLog::EndErrorCapture()
+{
+  std::unique_ptr<std::vector<std::string>> lines(tlsErrorCapture);
+  tlsErrorCapture = nullptr;
+  if (!lines)
+    return {};
+  return StringUtils::Join(*lines, "[CR]");
+}
+
+void CLog::SetPlaybackError(const std::string& reason)
+{
+  std::lock_guard<std::mutex> lock(playbackErrorMutex);
+  playbackError = reason;
+  playbackErrorTime = std::chrono::steady_clock::now();
+}
+
+std::string CLog::TakePlaybackError()
+{
+  std::lock_guard<std::mutex> lock(playbackErrorMutex);
+  std::string reason;
+  reason.swap(playbackError);
+  if (std::chrono::steady_clock::now() - playbackErrorTime > std::chrono::seconds(60))
+    return {};
+  return reason;
+}
+
 void CLog::FormatAndLogInternal(spdlog::level::level_enum level,
                                 uint32_t component,
                                 fmt::string_view format,
@@ -318,6 +385,7 @@ void CLog::FormatAndLogInternal(spdlog::level::level_enum level,
 
   auto message = fmt::vformat(format, args);
   FormatLineBreaks(message);
+  CaptureError(level, message);
   GetLoggerById(component)->log(level, message);
 }
 

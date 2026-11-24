@@ -380,6 +380,11 @@ bool CFile::Open(const CURL& file, const unsigned int flags)
     return true;
   }
   XBMCCOMMONS_HANDLE_UNCHECKED
+  // LOCAL PATCH (megarushing): name the exception (e.g. std::bad_alloc when memory is low)
+  catch (const std::exception& e)
+  {
+    CLog::Log(LOGERROR, "{} - Unhandled exception: {}", __FUNCTION__, e.what());
+  }
   catch (...) { CLog::Log(LOGERROR, "{} - Unhandled exception", __FUNCTION__); }
   CLog::Log(LOGERROR, "{} - Error opening {}", __FUNCTION__, file.GetRedacted());
   return false;
