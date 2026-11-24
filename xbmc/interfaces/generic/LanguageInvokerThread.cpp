@@ -48,6 +48,7 @@ bool CLanguageInvokerThread::execute(const std::string &script, const std::vecto
 
   m_script = script;
   m_args = arguments;
+  m_errorCapture = CLog::CurrentErrorCapture(); // LOCAL PATCH (megarushing)
 
   if (CThread::IsRunning())
   {
@@ -108,7 +109,10 @@ void CLanguageInvokerThread::Process()
   do
   {
     m_restart = false;
+    CLog::JoinErrorCapture(m_errorCapture); // LOCAL PATCH (megarushing)
     m_invoker->Execute(m_script, m_args);
+    CLog::JoinErrorCapture(nullptr);
+    m_errorCapture.reset();
 
     if (m_invoker->GetState() != InvokerStateScriptDone)
       m_reusable = false;

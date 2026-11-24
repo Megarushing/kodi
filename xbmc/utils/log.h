@@ -56,6 +56,8 @@ struct formatter<std::atomic<T>, Char> : formatter<T, Char>
 } // namespace fmt
 #endif
 
+struct CLogErrorCapture; // LOCAL PATCH (megarushing), see BeginErrorCapture
+
 class CLog : public ISettingsHandler, public ISettingCallback
 {
 public:
@@ -155,10 +157,14 @@ public:
 
   // LOCAL PATCH (megarushing): the "Playback failed" box shows the reason.
   // While a capture runs on a thread, the ERROR/FATAL lines that thread logs are kept
-  // (first 3, each cut to 200 chars). EndErrorCapture() stops it and returns them.
-  static void BeginErrorCapture();
-  static std::string EndErrorCapture();
-  // Hand-over from the player thread to the error box (cleared on read, 60 s max age)
+  // (first 3, each cut to 200 chars; a Python exception becomes "Type: contents").
+  // Begin returns the capture that was running before (nesting); End takes the lines,
+  // restores that one and hands the lines to it too. Another thread can log into the same
+  // capture with JoinErrorCapture (e.g. the add-on script that resolves a plugin:// path).
+  static std::shared_ptr<CLogErrorCapture> BeginErrorCapture();
+  static std::string EndErrorCapture(std::shared_ptr<CLogErrorCapture> previous = nullptr);
+  static std::shared_ptr<CLogErrorCapture> CurrentErrorCapture();
+  static void JoinErrorCapture(std::shared_ptr<CLogErrorCapture> capture);
   static void SetPlaybackError(const std::string& reason);
   static std::string TakePlaybackError();
 

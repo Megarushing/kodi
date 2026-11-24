@@ -783,9 +783,15 @@ void CPythonInvoker::onError(const std::string& exceptionType /* = "" */,
           CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(2102), m_addon->Name());
     else
       message = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(2103);
-    pDlgToast->QueueNotification(
-        CGUIDialogKaiToast::Error, message,
-        CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(2104));
+    // LOCAL PATCH (megarushing): say what failed ("KeyError: 'id'"), not only "check the log"
+    std::string reason = exceptionType;
+    StringUtils::Replace(reason, "<class '", "");
+    StringUtils::Replace(reason, "'>", "");
+    if (!exceptionValue.empty())
+      reason = reason.empty() ? exceptionValue : reason + ": " + exceptionValue;
+    if (reason.empty())
+      reason = CServiceBroker::GetResourcesComponent().GetLocalizeStrings().Get(2104);
+    pDlgToast->QueueNotification(CGUIDialogKaiToast::Error, message, reason);
   }
 }
 

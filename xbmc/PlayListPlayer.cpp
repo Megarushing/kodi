@@ -362,9 +362,15 @@ bool CPlayListPlayer::Play(int iSong,
   m_bPlaybackStarted = false;
 
   const auto playAttempt = std::chrono::steady_clock::now();
+  // LOCAL PATCH (megarushing): keep the errors logged while starting it (plugin resolve, add-on
+  // script, file open) for the "Playback failed" box (CLog::BeginErrorCapture)
+  auto previousCapture = CLog::BeginErrorCapture();
   bool ret = g_application.PlayFile(*item, player, bAutoPlay);
+  const std::string failReason = CLog::EndErrorCapture(previousCapture);
   if (!ret)
   {
+    if (!failReason.empty())
+      CLog::SetPlaybackError(failReason);
     CLog::Log(LOGERROR, "Playlist Player: skipping unplayable item: {}, path [{}]", m_iCurrentSong,
               CURL::GetRedacted(item->GetDynPath()));
     playlist.SetUnPlayable(m_iCurrentSong);
@@ -387,7 +393,12 @@ bool CPlayListPlayer::Play(int iSong,
       CLog::Log(LOGDEBUG,"Playlist Player: one or more items failed to play... aborting playback");
 
       // open error dialog
-      HELPERS::ShowOKDialogText(CVariant{16026}, CVariant{16027});
+      // LOCAL PATCH (megarushing): with the logged reason when there is one
+      const std::string reason = CLog::TakePlaybackError();
+      if (reason.empty())
+        HELPERS::ShowOKDialogText(CVariant{16026}, CVariant{16027});
+      else
+        HELPERS::ShowOKDialogText(CVariant{16026}, CVariant{reason});
 
       CGUIMessage msg(GUI_MSG_PLAYLISTPLAYER_STOPPED, 0, 0, static_cast<int>(m_iCurrentPlayList),
                       m_iCurrentSong);

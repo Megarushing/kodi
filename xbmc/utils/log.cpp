@@ -313,29 +313,67 @@ spdlog::level::level_enum CLog::MapLogLevel(int level)
 }
 
 // LOCAL PATCH (megarushing): error capture for the "Playback failed" box (see log.h)
+struct CLogErrorCapture
+{
+  std::mutex mutex;
+  std::vector<std::string> lines;
+};
+
 namespace
 {
 constexpr size_t ERROR_CAPTURE_LINES = 3;
 constexpr size_t ERROR_CAPTURE_CHARS = 200;
-thread_local std::vector<std::string>* tlsErrorCapture = nullptr;
+thread_local std::shared_ptr<CLogErrorCapture> tlsErrorCapture;
 std::mutex playbackErrorMutex;
 std::string playbackError;
 std::chrono::steady_clock::time_point playbackErrorTime;
 
+// One line for the box. A Python exception is logged as a block whose first line says nothing
+// ("EXCEPTION Thrown ... -->Python callback/script returned the following error<--"); use its
+// "Error Type" + "Error Contents" lines instead.
+std::string ErrorLine(const std::string& message)
+{
+  auto field = [&message](const std::string& name) -> std::string
+  {
+    const auto pos = message.find(name);
+    if (pos == std::string::npos)
+      return {};
+    const auto start = pos + name.size();
+    std::string value = message.substr(start, message.find('\n', start) - start);
+    StringUtils::Trim(value);
+    return value;
+  };
+  std::string contents = field("Error Contents:");
+  if (!contents.empty())
+  {
+    std::string type = field("Error Type:");
+    StringUtils::Replace(type, "<class '", "");
+    StringUtils::Replace(type, "'>", "");
+    return type.empty() ? contents : type + ": " + contents;
+  }
+  return message.substr(0, message.find('\n'));
+}
+
+void AddErrorLine(CLogErrorCapture& capture, std::string line)
+{
+  if (line.size() > ERROR_CAPTURE_CHARS)
+    line = line.substr(0, ERROR_CAPTURE_CHARS - 3) + "...";
+  std::lock_guard<std::mutex> lock(capture.mutex);
+  if (capture.lines.size() >= ERROR_CAPTURE_LINES)
+    return;
+  for (const auto& seen : capture.lines)
+    if (seen == line)
+      return;
+  capture.lines.push_back(std::move(line));
+}
+
 void CaptureError(spdlog::level::level_enum level, const std::string& message)
 {
-  if (!tlsErrorCapture || level < spdlog::level::err ||
-      tlsErrorCapture->size() >= ERROR_CAPTURE_LINES)
+  if (!tlsErrorCapture || level < spdlog::level::err)
     return;
   try
   {
-    std::string line = message.substr(0, message.find('\n'));
-    if (line.size() > ERROR_CAPTURE_CHARS)
-      line = line.substr(0, ERROR_CAPTURE_CHARS - 3) + "...";
-    for (const auto& seen : *tlsErrorCapture)
-      if (seen == line)
-        return;
-    tlsErrorCapture->push_back(std::move(line));
+    AddErrorLine(*tlsErrorCapture, ErrorLine(message));
   }
   catch (...) // never let the capture break logging (e.g. out of memory)
   {
@@ -343,19 +381,44 @@ void CaptureError(spdlog::level::level_enum level, const std::string& message)
 }
 } // namespace
 
-void CLog::BeginErrorCapture()
+std::shared_ptr<CLogErrorCapture> CLog::BeginErrorCapture()
 {
-  delete tlsErrorCapture;
-  tlsErrorCapture = new (std::nothrow) std::vector<std::string>();
+  auto previous = tlsErrorCapture;
+  try
+  {
+    tlsErrorCapture = std::make_shared<CLogErrorCapture>();
+  }
+  catch (...)
+  {
+  }
+  return previous;
 }
 
-std::string CLog::EndErrorCapture()
+std::string CLog::EndErrorCapture(std::shared_ptr<CLogErrorCapture> previous)
 {
-  std::unique_ptr<std::vector<std::string>> lines(tlsErrorCapture);
-  tlsErrorCapture = nullptr;
-  if (!lines)
+  auto capture = std::move(tlsErrorCapture);
+  tlsErrorCapture = std::move(previous);
+  if (!capture || capture == tlsErrorCapture)
     return {};
-  return StringUtils::Join(*lines, "[CR]");
+  std::vector<std::string> lines;
+  {
+    std::lock_guard<std::mutex> lock(capture->mutex);
+    lines.swap(capture->lines);
+  }
+  if (tlsErrorCapture)
+    for (const auto& line : lines)
+      AddErrorLine(*tlsErrorCapture, line);
+  return StringUtils::Join(lines, "[CR]");
+}
+
+std::shared_ptr<CLogErrorCapture> CLog::CurrentErrorCapture()
+{
+  return tlsErrorCapture;
+}
+
+void CLog::JoinErrorCapture(std::shared_ptr<CLogErrorCapture> capture)
+{
+  tlsErrorCapture = std::move(capture);
 }
 
 void CLog::SetPlaybackError(const std::string& reason)
@@ -399,6 +462,7 @@ void CLog::FormatAndLogInternal(const std::string& loggerName,
 
   auto message = fmt::vformat(format, args);
   FormatLineBreaks(message);
+  CaptureError(level, message); // LOCAL PATCH (megarushing)
   GetLogger(loggerName)->log(level, message);
 }
 

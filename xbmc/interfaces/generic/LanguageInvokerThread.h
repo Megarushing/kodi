@@ -10,6 +10,7 @@
 
 #include "interfaces/generic/ILanguageInvoker.h"
 #include "threads/Thread.h"
+#include "utils/log.h"
 
 #include <chrono>
 #include <string>
@@ -59,6 +60,8 @@ private:
   CScriptInvocationManager *m_invocationManager;
   std::string m_script;
   std::vector<std::string> m_args;
+  // LOCAL PATCH (megarushing): errors this script logs also go to the caller's capture
+  std::shared_ptr<CLogErrorCapture> m_errorCapture;
 
   std::mutex m_mutex;
   std::condition_variable m_condition;
