@@ -692,10 +692,6 @@ void CPythonInvoker::onExecutionDone()
     // Unregister the language hook
     m_languageHook->UnregisterMe();
 
-    // LOCAL PATCH (megarushing), from open upstream xbmc/xbmc#30784: clear any pending callbacks
-    // queued while a reusable invoker was parked or during interpreter teardown.
-    XBMCAddon::RetardedAsyncCallbackHandler::clearPendingCalls(m_threadState);
-
     PyThreadState_Swap(m_mainThreadState);
     PyThreadState_Clear(m_mainThreadState);
     PyThreadState_DeleteCurrent();
