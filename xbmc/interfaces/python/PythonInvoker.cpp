@@ -54,6 +54,7 @@
 #include <cassert>
 #include <chrono>
 #include <iterator>
+#include <string_view>
 
 #ifdef TARGET_WINDOWS
 extern "C" FILE* fopen_utf8(const char* _Filename, const char* _Mode);
@@ -669,7 +670,36 @@ void CPythonInvoker::onExecutionDone()
     // _PyModule_ClearDict when Py_EndInterpreter tears down the interpreter.
     PyObject* modules = PyImport_GetModuleDict();
     if (modules)
+    {
+      // LOCAL PATCH (megarushing): also empty each module's own dict. Clearing sys.modules alone
+      // stops Py_EndInterpreter from wiping the modules, so one object still referenced after the
+      // script ended (seen after WindowXMLDialog.doModal()) kept the whole module graph, ~17 MB.
+      // builtins, sys and the shared SWIG binding modules are left to Py_EndInterpreter.
+      PyObject* values = PyDict_Values(modules);
+      const Py_ssize_t count = values ? PyList_GET_SIZE(values) : 0;
+      for (Py_ssize_t i = 0; i < count; ++i)
+      {
+        PyObject* module = PyList_GET_ITEM(values, i);
+        if (!PyModule_Check(module))
+          continue;
+        const char* name = PyModule_GetName(module);
+        if (!name)
+        {
+          PyErr_Clear();
+          continue;
+        }
+        const std::string_view moduleName(name);
+        if (moduleName == "builtins" || moduleName == "sys" || moduleName.starts_with("xbmc") ||
+            moduleName.starts_with("_xbmc"))
+          continue;
+        PyObject* dict = PyModule_GetDict(module);
+        if (dict)
+          PyDict_Clear(dict);
+        PyErr_Clear();
+      }
+      Py_XDECREF(values);
       PyDict_Clear(modules);
+    }
 
     // Collect any objects that became unreachable after dict clearing.
     PyGC_Collect();
