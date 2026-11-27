@@ -42,6 +42,7 @@
 #include "input/actions/ActionIDs.h"
 #include "input/mouse/MouseStat.h"
 #include "interfaces/AnnouncementManager.h"
+#include "interfaces/generic/ScriptInvocationManager.h"
 #include "messaging/ApplicationMessenger.h"
 #include "platform/xbmc.h"
 #include "powermanagement/PowerManager.h"
@@ -1154,6 +1155,8 @@ void MemoryGuardProcess(bool playingVideo)
   {
     g_memoryGuard.nextRelief =
         now + milliseconds(playingVideo ? GUARD_RELIEF_EVERY_MS_VIDEO : GUARD_RELIEF_EVERY_MS);
+    if (level == 2)
+      CScriptInvocationManager::GetInstance().ReleaseIdlePooledInvokers("critical memory");
     gui->GetLargeTextureManager().CleanupUnusedImages(true);
     gui->GetTextureManager().FreeUnusedTextures(0);
     // mallopt is declared only for API >= 26; Kodi builds against API 21, so look it up at runtime.
@@ -1419,6 +1422,8 @@ void CXBMCApp::PrepareMemoryForPlayback()
   CGUIComponent* gui = CServiceBroker::GetGUI();
   if (!gui)
     return;
+  // LOCAL PATCH (megarushing): idle warm plugin interpreters (~20 MB each) do not help playback
+  CScriptInvocationManager::GetInstance().ReleaseIdlePooledInvokers("before playback");
   const long avail = ReadProcKb("/proc/meminfo", "MemAvailable");
   if (avail < 0 || avail >= GUARD_PREPLAY_UNLOAD_AVAIL_KB)
     return;

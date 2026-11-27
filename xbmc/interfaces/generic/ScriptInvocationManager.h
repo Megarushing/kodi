@@ -43,6 +43,13 @@ public:
   int GetReusablePluginHandle(const std::string& script);
 
   /*!
+   * \brief Stops every idle pooled plugin invoker so its Python interpreter is freed.
+   * LOCAL PATCH (megarushing): used by the Android memory guard.
+   * \return number of invokers released
+   */
+  size_t ReleaseIdlePooledInvokers(const char* reason);
+
+  /*!
    * \brief Executes the given script asynchronously in a separate thread.
    *
    * \param script Path to the script to be executed

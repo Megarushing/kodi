@@ -247,6 +247,26 @@ void CScriptInvocationManager::PrunePoolLocked()
                 });
 }
 
+size_t CScriptInvocationManager::ReleaseIdlePooledInvokers(const char* reason)
+{
+  std::unique_lock lock(m_critSection);
+  PrunePoolLocked();
+  size_t released = 0;
+  std::erase_if(m_invokerPool,
+                [&released](PooledInvoker& entry)
+                {
+                  if (entry.claimed || !entry.thread->Reuseable(entry.script))
+                    return false;
+                  entry.thread->Release();
+                  ++released;
+                  return true;
+                });
+  if (released > 0)
+    CLog::Log(LOGINFO, "InvokerPool: released {} idle invokers ({}), {} busy left", released,
+              reason, m_invokerPool.size());
+  return released;
+}
+
 int CScriptInvocationManager::GetReusablePluginHandle(const std::string& script)
 {
   // Never block the GUI thread: it would freeze rendering while it waits.
@@ -384,6 +404,18 @@ int CScriptInvocationManager::ExecutePooled(const std::string& script,
   auto invoker = handler->second->CreateInvoker();
   if (invoker == nullptr)
     return -1;
+
+  // LOCAL PATCH (megarushing): pool full (cold start after the wait, or from the GUI thread):
+  // run once, so the interpreter ends with the run instead of idling in the pool.
+  const auto live = std::ranges::count_if(m_invokerPool, [&script](const PooledInvoker& entry)
+                                          { return entry.script == script; });
+  if (static_cast<size_t>(live) >= INVOKER_POOL_MAX_PER_SCRIPT)
+  {
+    CLog::Log(LOGINFO, "InvokerPool: full (live {}), one-shot run handle {} {}", live,
+              pluginHandle, script);
+    lock.unlock();
+    return ExecuteAsync(script, invoker, addon, arguments, false, pluginHandle);
+  }
 
   invokerThread = std::make_shared<CLanguageInvokerThread>(invoker, this, true);
   if (addon != nullptr)
